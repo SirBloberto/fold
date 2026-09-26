@@ -39,6 +39,7 @@ impl Parser {
             Token::Let => self.let_statement()?,
             Token::Func => self.func()?,
             Token::Return => self.return_statement()?,
+            Token::Draw => self.draw()?,
             Token::Name(_) => self.assign()?,
             _ => return Err(self.error("expected a statement")),
         };
@@ -49,16 +50,20 @@ impl Parser {
     fn input(&mut self) -> Result<StmtKind, String> {
         self.bump();
         let name = self.name()?;
-        self.expect(Token::Colon, "`:` after the input name")?;
-        let min = self.expr()?;
-        self.expect(Token::DotDot, "`..` between the minimum and maximum")?;
-        let max = self.expr()?;
+        let range = if *self.peek() == Token::Colon {
+            self.bump();
+            let min = self.expr()?;
+            self.expect(Token::DotDot, "`..` between the minimum and maximum")?;
+            let max = self.expr()?;
+            Some((min, max))
+        } else {
+            None
+        };
         self.expect(Token::Equals, "`=` and a default value")?;
         let default = self.expr()?;
         Ok(StmtKind::Input {
             name,
-            min,
-            max,
+            range,
             default,
         })
     }
@@ -96,6 +101,11 @@ impl Parser {
         Ok(StmtKind::Return(self.expr()?))
     }
 
+    fn draw(&mut self) -> Result<StmtKind, String> {
+        self.bump();
+        Ok(StmtKind::Draw(self.expr()?))
+    }
+
     fn end_of_statement(&mut self) -> Result<(), String> {
         match self.peek() {
             Token::Newline => {
@@ -109,13 +119,32 @@ impl Parser {
 
     fn expr(&mut self) -> Result<Expr, String> {
         self.enter()?;
-        let expr = self.binary(0)?;
+        let expr = if matches!(self.peek(), Token::Name(_)) && *self.peek_second() == Token::Arrow {
+            self.lambda()?
+        } else {
+            self.binary(0)?
+        };
         self.leave();
         Ok(expr)
     }
 
+    fn lambda(&mut self) -> Result<Expr, String> {
+        let pos = self.pos();
+        let param = self.name()?;
+        self.bump();
+        self.skip_newlines();
+        let body = self.expr()?;
+        Ok(Expr {
+            kind: ExprKind::Lambda {
+                param,
+                body: Box::new(body),
+            },
+            pos,
+        })
+    }
+
     fn binary(&mut self, min_strength: u8) -> Result<Expr, String> {
-        let mut left = self.unary()?;
+        let mut left = self.pipe()?;
 
         while let Some((op, strength)) = binary_op(self.peek()) {
             if strength < min_strength {
@@ -136,6 +165,37 @@ impl Parser {
         }
 
         Ok(left)
+    }
+
+    fn pipe(&mut self) -> Result<Expr, String> {
+        let mut expr = self.unary()?;
+
+        while self.pipe_follows() {
+            self.skip_newlines();
+            self.bump();
+            self.skip_newlines();
+            let pos = expr.pos;
+            let name = self.name()?;
+            let mut args = vec![expr];
+            if *self.peek() == Token::LParen {
+                self.bump();
+                args.extend(self.list(Self::expr)?);
+            }
+            expr = Expr {
+                kind: ExprKind::Call { name, args },
+                pos,
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn pipe_follows(&self) -> bool {
+        self.tokens[self.index..]
+            .iter()
+            .map(|spanned| &spanned.token)
+            .find(|token| **token != Token::Newline)
+            == Some(&Token::Pipe)
     }
 
     fn unary(&mut self) -> Result<Expr, String> {
@@ -275,6 +335,11 @@ impl Parser {
         &self.tokens[self.index].token
     }
 
+    fn peek_second(&self) -> &Token {
+        let next = (self.index + 1).min(self.tokens.len() - 1);
+        &self.tokens[next].token
+    }
+
     fn pos(&self) -> Pos {
         self.tokens[self.index].pos
     }
@@ -289,3 +354,6 @@ fn binary_op(token: &Token) -> Option<(BinOp, u8)> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -17,8 +17,7 @@ pub struct Stmt {
 pub enum StmtKind {
     Input {
         name: String,
-        min: Expr,
-        max: Expr,
+        range: Option<(Expr, Expr)>,
         default: Expr,
     },
     Let {
@@ -35,6 +34,7 @@ pub enum StmtKind {
         body: Vec<Stmt>,
     },
     Return(Expr),
+    Draw(Expr),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -61,6 +61,10 @@ pub enum ExprKind {
     Field {
         target: Box<Expr>,
         field: String,
+    },
+    Lambda {
+        param: String,
+        body: Box<Expr>,
     },
 }
 

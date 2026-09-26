@@ -4,6 +4,7 @@ pub enum Token {
     Input,
     Func,
     Return,
+    Draw,
 
     Name(String),
     Num(f32),
@@ -14,6 +15,8 @@ pub enum Token {
     Star,
     Slash,
     Equals,
+    Pipe,
+    Arrow,
 
     LParen,
     RParen,

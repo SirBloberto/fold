@@ -58,6 +58,9 @@ impl<'a> Env<'a> {
             StmtKind::Func { .. } | StmtKind::Return(_) => {
                 return Err(at("functions aren't supported yet", stmt.pos));
             }
+            StmtKind::Draw(_) => {
+                return Err(at("`draw` isn't supported yet", stmt.pos));
+            }
         }
         Ok(())
     }
@@ -84,7 +87,7 @@ impl<'a> Env<'a> {
     fn expr(&self, expr: &Expr) -> Result<Value, String> {
         let value = match &expr.kind {
             ExprKind::Num(n) => Value::Num(*n),
-            ExprKind::Rgba(rgb) => Value::Rgba(Rgba::hex(*rgb)),
+            ExprKind::Rgba(hex) => Value::Rgba(Rgba::hex(*hex >> 8)),
             ExprKind::Name(name) => match self.lookup(name) {
                 Some(value) => value,
                 None => return Err(at(&format!("unknown name `{name}`"), expr.pos)),
@@ -109,6 +112,9 @@ impl<'a> Env<'a> {
                 (Value::Vec2(v), "y") => Value::Num(v.y),
                 _ => return Err(at(&format!("no field `{field}`"), expr.pos)),
             },
+            ExprKind::Lambda { .. } => {
+                return Err(at("inline functions aren't supported yet", expr.pos));
+            }
         };
         Ok(value)
     }

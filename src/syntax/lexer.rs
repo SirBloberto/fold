@@ -46,7 +46,15 @@ impl Lexer<'_> {
             '-' => Token::Minus,
             '*' => Token::Star,
             '/' => Token::Slash,
+            '=' if self.peek() == Some('>') => {
+                self.bump();
+                Token::Arrow
+            }
             '=' => Token::Equals,
+            '|' if self.peek() == Some('>') => {
+                self.bump();
+                Token::Pipe
+            }
             '(' => Token::LParen,
             ')' => Token::RParen,
             '{' => Token::LBrace,
@@ -60,7 +68,7 @@ impl Lexer<'_> {
             '.' => Token::Dot,
             '#' => return self.rgba(),
             '0'..='9' => self.num(c),
-            'a'..='z' | 'A'..='Z' | '_' => self.word(c),
+            'a'..='z' | 'A'..='Z' | '_' => return self.word(c),
             _ => return Err(format!("unexpected `{c}`")),
         };
         Ok(token)
@@ -78,28 +86,35 @@ impl Lexer<'_> {
         Token::Num(text.parse().expect("digits with at most one '.'"))
     }
 
-    fn word(&mut self, first: char) -> Token {
+    fn word(&mut self, first: char) -> Result<Token, String> {
         let word = format!(
             "{first}{}",
             self.take_while(|c| c.is_ascii_alphanumeric() || c == '_')
         );
 
-        match word.as_str() {
+        let token = match word.as_str() {
             "let" => Token::Let,
             "input" => Token::Input,
             "func" => Token::Func,
             "return" => Token::Return,
+            "draw" => Token::Draw,
+            "if" | "else" | "for" | "in" | "match" | "and" | "or" | "not" | "true" | "false"
+            | "import" | "export" | "as" | "while" | "loop" => {
+                return Err(format!("`{word}` is reserved and cannot be used as a name"));
+            }
             _ => Token::Name(word),
-        }
+        };
+        Ok(token)
     }
 
     fn rgba(&mut self) -> Result<Token, String> {
         let hex = self.take_while(|c| c.is_ascii_alphanumeric());
 
-        match u32::from_str_radix(&hex, 16) {
-            Ok(rgb) if hex.len() == 6 => Ok(Token::Rgba(rgb)),
+        match (hex.len(), u32::from_str_radix(&hex, 16)) {
+            (6, Ok(rgb)) => Ok(Token::Rgba(rgb << 8 | 0xff)),
+            (8, Ok(rgba)) => Ok(Token::Rgba(rgba)),
             _ => Err(format!(
-                "bad colour `#{hex}`, expected 6 hex digits like `#ffaa00`"
+                "bad colour `#{hex}`, expected 6 or 8 hex digits like `#ffaa00`"
             )),
         }
     }
