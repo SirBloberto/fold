@@ -45,8 +45,8 @@ pub struct Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprKind {
-    Number(f32),
-    Colour(u32),
+    Num(f32),
+    Rgba(u32),
     Name(String),
     Negate(Box<Expr>),
     Binary {

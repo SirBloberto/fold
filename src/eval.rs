@@ -1,12 +1,12 @@
-use crate::pixel::{self, Colour, Vec2};
+use crate::pixel::{self, Rgba, Vec2};
 use crate::syntax::ast::{BinOp, Expr, ExprKind, Program, Stmt, StmtKind};
 use crate::syntax::token::Pos;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Value {
-    Number(f32),
+    Num(f32),
     Vec2(Vec2),
-    Colour(Colour),
+    Rgba(Rgba),
 }
 
 pub struct Pixel {
@@ -17,7 +17,7 @@ pub struct Pixel {
     pub size: Vec2,
 }
 
-pub fn run(program: &Program, pixel: &Pixel) -> Result<Colour, String> {
+pub fn run(program: &Program, pixel: &Pixel) -> Result<Rgba, String> {
     let mut env = Env {
         pixel,
         vars: Vec::new(),
@@ -32,7 +32,7 @@ pub fn run(program: &Program, pixel: &Pixel) -> Result<Colour, String> {
 struct Env<'a> {
     pixel: &'a Pixel,
     vars: Vec<(&'a str, Value)>,
-    out: Option<Colour>,
+    out: Option<Rgba>,
 }
 
 impl<'a> Env<'a> {
@@ -47,10 +47,10 @@ impl<'a> Env<'a> {
                 self.vars.push((name, value));
             }
             StmtKind::Assign { name, value } if name == "OUT" => {
-                let Value::Colour(colour) = self.expr(value)? else {
+                let Value::Rgba(col) = self.expr(value)? else {
                     return Err(at("OUT must be set to a colour", stmt.pos));
                 };
-                self.out = Some(colour);
+                self.out = Some(col);
             }
             StmtKind::Assign { name, .. } => {
                 return Err(at(&format!("`{name}` can't be assigned"), stmt.pos));
@@ -66,8 +66,8 @@ impl<'a> Env<'a> {
         let builtin = match name {
             "P" => Value::Vec2(self.pixel.p),
             "UV" => Value::Vec2(self.pixel.uv),
-            "TIME" => Value::Number(self.pixel.time),
-            "PX" => Value::Number(self.pixel.px),
+            "TIME" => Value::Num(self.pixel.time),
+            "PX" => Value::Num(self.pixel.px),
             "SIZE" => Value::Vec2(self.pixel.size),
             _ => {
                 return self
@@ -83,16 +83,16 @@ impl<'a> Env<'a> {
 
     fn expr(&self, expr: &Expr) -> Result<Value, String> {
         let value = match &expr.kind {
-            ExprKind::Number(n) => Value::Number(*n),
-            ExprKind::Colour(rgb) => Value::Colour(Colour::hex(*rgb)),
+            ExprKind::Num(n) => Value::Num(*n),
+            ExprKind::Rgba(rgb) => Value::Rgba(Rgba::hex(*rgb)),
             ExprKind::Name(name) => match self.lookup(name) {
                 Some(value) => value,
                 None => return Err(at(&format!("unknown name `{name}`"), expr.pos)),
             },
             ExprKind::Negate(inner) => match self.expr(inner)? {
-                Value::Number(n) => Value::Number(-n),
+                Value::Num(n) => Value::Num(-n),
                 Value::Vec2(v) => Value::Vec2(Vec2 { x: -v.x, y: -v.y }),
-                Value::Colour(_) => return Err(at("can't negate a colour", expr.pos)),
+                Value::Rgba(_) => return Err(at("can't negate a colour", expr.pos)),
             },
             ExprKind::Binary { op, left, right } => {
                 binary(*op, self.expr(left)?, self.expr(right)?).map_err(|e| at(&e, expr.pos))?
@@ -105,8 +105,8 @@ impl<'a> Env<'a> {
                 call(name, &args).map_err(|e| at(&e, expr.pos))?
             }
             ExprKind::Field { target, field } => match (self.expr(target)?, field.as_str()) {
-                (Value::Vec2(v), "x") => Value::Number(v.x),
-                (Value::Vec2(v), "y") => Value::Number(v.y),
+                (Value::Vec2(v), "x") => Value::Num(v.x),
+                (Value::Vec2(v), "y") => Value::Num(v.y),
                 _ => return Err(at(&format!("no field `{field}`"), expr.pos)),
             },
         };
@@ -119,15 +119,15 @@ fn binary(op: BinOp, left: Value, right: Value) -> Result<Value, String> {
     use Value::*;
 
     let result = match (op, left, right) {
-        (Add, Number(a), Number(b)) => Number(a + b),
-        (Sub, Number(a), Number(b)) => Number(a - b),
-        (Mul, Number(a), Number(b)) => Number(a * b),
-        (Div, Number(a), Number(b)) => Number(a / b),
+        (Add, Num(a), Num(b)) => Num(a + b),
+        (Sub, Num(a), Num(b)) => Num(a - b),
+        (Mul, Num(a), Num(b)) => Num(a * b),
+        (Div, Num(a), Num(b)) => Num(a / b),
 
         (Sub, Vec2(a), Vec2(b)) => Vec2(a - b),
 
-        (Add, Colour(a), Colour(b)) => Colour(a + b),
-        (Mul, Colour(c), Number(k)) | (Mul, Number(k), Colour(c)) => Colour(c * k),
+        (Add, Rgba(a), Rgba(b)) => Rgba(a + b),
+        (Mul, Rgba(c), Num(k)) | (Mul, Num(k), Rgba(c)) => Rgba(c * k),
 
         _ => return Err(format!("can't use {op:?} on {left:?} and {right:?}")),
     };
@@ -138,12 +138,12 @@ fn call(name: &str, args: &[Value]) -> Result<Value, String> {
     use Value::*;
 
     let result = match (name, args) {
-        ("sin", [Number(x)]) => Number(x.sin()),
+        ("sin", [Num(x)]) => Num(x.sin()),
 
-        ("circle", [Vec2(p), Number(r)]) => Number(pixel::circle(*p, *r)),
+        ("circle", [Vec2(p), Num(r)]) => Num(pixel::circle(*p, *r)),
 
-        ("fill", [Number(d), Colour(c)]) => Colour(pixel::fill(*d, *c)),
-        ("glow", [Number(d), Colour(c), Number(w)]) => Colour(pixel::glow(*d, *c, *w)),
+        ("fill", [Num(d), Rgba(c)]) => Rgba(pixel::fill(*d, *c)),
+        ("glow", [Num(d), Rgba(c), Num(w)]) => Rgba(pixel::glow(*d, *c, *w)),
 
         _ => return Err(format!("unknown function `{name}`, or wrong arguments")),
     };

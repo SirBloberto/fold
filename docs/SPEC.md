@@ -101,7 +101,7 @@ Everything not listed here is defined in the prelude, in Fold.
 | Maths | `sin cos atan2 sqrt exp pow floor abs min max` |
 | Values | `vec2(x, y)`, `rgba(r, g, b, a)` |
 | Random | `hash(pt)`: a repeatable number in `0..1` for a position. Identical on every engine. |
-| Shapes | `circle(r)`, `rect(w, h)`, `segment(from, to)`, all centred on the origin; `shape(fn)`, where `fn(pt)` returns a distance; `dist(sh, pt)` |
+| Shapes | `circle(r)`, `rect(w, h)`, `segment(from, to)`, all centred on the origin; `shape(fn)`, where `fn(pt)` returns the true distance to the edge, or less; `dist(sh, pt)` |
 | Bounds | `anchor(sh, anc)`: the point at relative position `anc` on the shape's bounding box (`TOP_LEFT` is `(-1, -1)`, `MID` is `(0, 0)`). Exact for built-in shapes; never too small for others. |
 
 ## 9. Grammar

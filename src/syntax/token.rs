@@ -6,8 +6,8 @@ pub enum Token {
     Return,
 
     Name(String),
-    Number(f32),
-    Colour(u32),
+    Num(f32),
+    Rgba(u32),
 
     Plus,
     Minus,

@@ -13,13 +13,13 @@ impl Vec2 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Colour {
+pub struct Rgba {
     pub r: f32,
     pub g: f32,
     pub b: f32,
 }
 
-impl Colour {
+impl Rgba {
     pub fn to_u32(self) -> u32 {
         let r = (self.r.clamp(0.0, 1.0) * 255.0).round() as u32;
         let g = (self.g.clamp(0.0, 1.0) * 255.0).round() as u32;
@@ -27,18 +27,18 @@ impl Colour {
         (r << 16) | (g << 8) | b
     }
 
-    pub fn hex(rgb: u32) -> Colour {
+    pub fn hex(rgb: u32) -> Rgba {
         let r = ((rgb >> 16) & 0xFF) as f32 / 255.0;
         let g = ((rgb >> 8) & 0xFF) as f32 / 255.0;
         let b = (rgb & 0xFF) as f32 / 255.0;
-        Colour { r, g, b }
+        Rgba { r, g, b }
     }
 }
 
-impl Add for Colour {
-    type Output = Colour;
-    fn add(self, o: Colour) -> Colour {
-        Colour {
+impl Add for Rgba {
+    type Output = Rgba;
+    fn add(self, o: Rgba) -> Rgba {
+        Rgba {
             r: self.r + o.r,
             g: self.g + o.g,
             b: self.b + o.b,
@@ -56,10 +56,10 @@ impl Sub for Vec2 {
     }
 }
 
-impl Mul<f32> for Colour {
-    type Output = Colour;
-    fn mul(self, k: f32) -> Colour {
-        Colour {
+impl Mul<f32> for Rgba {
+    type Output = Rgba;
+    fn mul(self, k: f32) -> Rgba {
+        Rgba {
             r: self.r * k,
             g: self.g * k,
             b: self.b * k,
@@ -67,7 +67,7 @@ impl Mul<f32> for Colour {
     }
 }
 
-pub fn mix(a: Colour, b: Colour, k: f32) -> Colour {
+pub fn mix(a: Rgba, b: Rgba, k: f32) -> Rgba {
     a * (1.0 - k) + b * k
 }
 
@@ -84,10 +84,10 @@ pub fn circle(p: Vec2, r: f32) -> f32 {
     p.length() - r
 }
 
-pub fn fill(d: f32, colour: Colour) -> Colour {
-    colour * (1.0 - smoothstep(-0.5, 0.5, d))
+pub fn fill(d: f32, col: Rgba) -> Rgba {
+    col * (1.0 - smoothstep(-0.5, 0.5, d))
 }
 
-pub fn glow(d: f32, colour: Colour, width: f32) -> Colour {
-    colour * (-d.max(0.0) / width).exp()
+pub fn glow(d: f32, col: Rgba, width: f32) -> Rgba {
+    col * (-d.max(0.0) / width).exp()
 }

@@ -176,13 +176,13 @@ impl Parser {
     fn primary(&mut self) -> Result<Expr, String> {
         let pos = self.pos();
         let kind = match self.peek().clone() {
-            Token::Number(value) => {
+            Token::Num(value) => {
                 self.bump();
-                ExprKind::Number(value)
+                ExprKind::Num(value)
             }
-            Token::Colour(rgb) => {
+            Token::Rgba(rgb) => {
                 self.bump();
-                ExprKind::Colour(rgb)
+                ExprKind::Rgba(rgb)
             }
             Token::Name(name) => {
                 self.bump();

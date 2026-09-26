@@ -58,15 +58,15 @@ impl Lexer<'_> {
                 Token::DotDot
             }
             '.' => Token::Dot,
-            '#' => return self.colour(),
-            '0'..='9' => self.number(c),
+            '#' => return self.rgba(),
+            '0'..='9' => self.num(c),
             'a'..='z' | 'A'..='Z' | '_' => self.word(c),
             _ => return Err(format!("unexpected `{c}`")),
         };
         Ok(token)
     }
 
-    fn number(&mut self, first: char) -> Token {
+    fn num(&mut self, first: char) -> Token {
         let mut text = format!("{first}{}", self.take_while(|c| c.is_ascii_digit()));
 
         if self.peek() == Some('.') && self.peek_second().is_some_and(|c| c.is_ascii_digit()) {
@@ -75,7 +75,7 @@ impl Lexer<'_> {
             text += &self.take_while(|c| c.is_ascii_digit());
         }
 
-        Token::Number(text.parse().expect("digits with at most one '.'"))
+        Token::Num(text.parse().expect("digits with at most one '.'"))
     }
 
     fn word(&mut self, first: char) -> Token {
@@ -93,11 +93,11 @@ impl Lexer<'_> {
         }
     }
 
-    fn colour(&mut self) -> Result<Token, String> {
+    fn rgba(&mut self) -> Result<Token, String> {
         let hex = self.take_while(|c| c.is_ascii_alphanumeric());
 
         match u32::from_str_radix(&hex, 16) {
-            Ok(rgb) if hex.len() == 6 => Ok(Token::Colour(rgb)),
+            Ok(rgb) if hex.len() == 6 => Ok(Token::Rgba(rgb)),
             _ => Err(format!(
                 "bad colour `#{hex}`, expected 6 hex digits like `#ffaa00`"
             )),
