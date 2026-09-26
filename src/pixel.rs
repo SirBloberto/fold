@@ -1,4 +1,4 @@
-use std::ops::{Add, Mul};
+use std::ops::{Add, Mul, Sub};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Vec2 {
@@ -38,14 +38,32 @@ impl Colour {
 impl Add for Colour {
     type Output = Colour;
     fn add(self, o: Colour) -> Colour {
-        Colour { r: self.r + o.r, g: self.g + o.g, b: self.b + o.b }
+        Colour {
+            r: self.r + o.r,
+            g: self.g + o.g,
+            b: self.b + o.b,
+        }
+    }
+}
+
+impl Sub for Vec2 {
+    type Output = Vec2;
+    fn sub(self, o: Vec2) -> Vec2 {
+        Vec2 {
+            x: self.x - o.x,
+            y: self.y - o.y,
+        }
     }
 }
 
 impl Mul<f32> for Colour {
     type Output = Colour;
     fn mul(self, k: f32) -> Colour {
-        Colour { r: self.r * k, g: self.g * k, b: self.b * k }
+        Colour {
+            r: self.r * k,
+            g: self.g * k,
+            b: self.b * k,
+        }
     }
 }
 
@@ -54,14 +72,22 @@ pub fn mix(a: Colour, b: Colour, k: f32) -> Colour {
 }
 
 pub fn step(edge: f32, x: f32) -> f32 {
-    if x < edge {
-        0.0
-    } else {
-        1.0
-    }
+    if x < edge { 0.0 } else { 1.0 }
 }
 
-pub fn ripples(uv: Vec2, t: f32) -> Colour {
-    let d = Vec2 { x: uv.x - 0.5, y: uv.y - 0.5 }.length();
-    mix(Colour::hex(0x0b1d3a), Colour::hex(0x4fc3f7), 0.5 + 0.5 * (d * 60.0 - t * 4.0).sin())
+pub fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
+    let k = ((x - a) / (b - a)).clamp(0.0, 1.0);
+    k * k * (3.0 - 2.0 * k)
+}
+
+pub fn circle(p: Vec2, r: f32) -> f32 {
+    p.length() - r
+}
+
+pub fn fill(d: f32, colour: Colour) -> Colour {
+    colour * (1.0 - smoothstep(-0.5, 0.5, d))
+}
+
+pub fn glow(d: f32, colour: Colour, width: f32) -> Colour {
+    colour * (-d.max(0.0) / width).exp()
 }

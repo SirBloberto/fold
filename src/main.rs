@@ -1,5 +1,5 @@
 mod pixel;
-use pixel::{ripples, Vec2};
+use pixel::{Colour, Vec2, circle, fill, glow};
 
 use minifb::{Key, Window, WindowOptions};
 use std::time::Instant;
@@ -18,14 +18,24 @@ fn main() {
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let t = start.elapsed().as_secs_f32();
 
+        let orange = Colour::hex(0xffaa00);
         for y in 0..HEIGHT {
             for x in 0..WIDTH {
                 let u = x as f32 / WIDTH as f32;
                 let v = y as f32 / HEIGHT as f32;
 
                 let uv = Vec2 { x: u, y: v };
-
-                buffer[y * WIDTH + x] = ripples(uv, t).to_u32();
+                let p = Vec2 {
+                    x: x as f32 - WIDTH as f32 / 2.0,
+                    y: y as f32 - HEIGHT as f32 / 2.0,
+                };
+                let centre = Vec2 { x: 0.0, y: 0.0 };
+                let r = 100.0;
+                let d = circle(p - centre, r);
+                let w = 20.0 + (t * 2.0).sin() * 6.0;
+                
+                let col = fill(d, orange) + glow(d, orange, w);
+                buffer[y * WIDTH + x] = col.to_u32();
             }
         }
 
