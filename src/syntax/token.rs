@@ -21,6 +21,7 @@ pub enum Token {
     RBrace,
     Comma,
     Colon,
+    Dot,
     DotDot,
 
     Newline,
