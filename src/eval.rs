@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::pixel::{self, Colour, Vec2};
 use crate::syntax::ast::{BinOp, Expr, ExprKind, Program, Stmt, StmtKind};
 use crate::syntax::token::Pos;
@@ -20,39 +18,33 @@ pub struct Pixel {
 }
 
 pub fn run(program: &Program, pixel: &Pixel) -> Result<Colour, String> {
-    let mut env = Env::new(pixel);
+    let mut env = Env {
+        pixel,
+        vars: Vec::new(),
+        out: None,
+    };
     for stmt in &program.body {
         env.statement(stmt)?;
     }
     env.out.ok_or("this file never sets OUT".into())
 }
 
-struct Env {
-    vars: HashMap<String, Value>,
+struct Env<'a> {
+    pixel: &'a Pixel,
+    vars: Vec<(&'a str, Value)>,
     out: Option<Colour>,
 }
 
-impl Env {
-    fn new(pixel: &Pixel) -> Env {
-        let vars = HashMap::from([
-            ("P".to_string(), Value::Vec2(pixel.p)),
-            ("UV".to_string(), Value::Vec2(pixel.uv)),
-            ("TIME".to_string(), Value::Number(pixel.time)),
-            ("PX".to_string(), Value::Number(pixel.px)),
-            ("SIZE".to_string(), Value::Vec2(pixel.size)),
-        ]);
-        Env { vars, out: None }
-    }
-
-    fn statement(&mut self, stmt: &Stmt) -> Result<(), String> {
+impl<'a> Env<'a> {
+    fn statement(&mut self, stmt: &'a Stmt) -> Result<(), String> {
         match &stmt.kind {
             StmtKind::Input { name, default, .. } => {
                 let value = self.expr(default)?;
-                self.vars.insert(name.clone(), value);
+                self.vars.push((name, value));
             }
             StmtKind::Let { name, value } => {
                 let value = self.expr(value)?;
-                self.vars.insert(name.clone(), value);
+                self.vars.push((name, value));
             }
             StmtKind::Assign { name, value } if name == "OUT" => {
                 let Value::Colour(colour) = self.expr(value)? else {
@@ -70,12 +62,31 @@ impl Env {
         Ok(())
     }
 
+    fn lookup(&self, name: &str) -> Option<Value> {
+        let builtin = match name {
+            "P" => Value::Vec2(self.pixel.p),
+            "UV" => Value::Vec2(self.pixel.uv),
+            "TIME" => Value::Number(self.pixel.time),
+            "PX" => Value::Number(self.pixel.px),
+            "SIZE" => Value::Vec2(self.pixel.size),
+            _ => {
+                return self
+                    .vars
+                    .iter()
+                    .rev()
+                    .find(|(var, _)| *var == name)
+                    .map(|(_, value)| *value);
+            }
+        };
+        Some(builtin)
+    }
+
     fn expr(&self, expr: &Expr) -> Result<Value, String> {
         let value = match &expr.kind {
             ExprKind::Number(n) => Value::Number(*n),
             ExprKind::Colour(rgb) => Value::Colour(Colour::hex(*rgb)),
-            ExprKind::Name(name) => match self.vars.get(name) {
-                Some(value) => *value,
+            ExprKind::Name(name) => match self.lookup(name) {
+                Some(value) => value,
                 None => return Err(at(&format!("unknown name `{name}`"), expr.pos)),
             },
             ExprKind::Negate(inner) => match self.expr(inner)? {
