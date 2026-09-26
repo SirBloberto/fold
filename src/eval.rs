@@ -123,7 +123,6 @@ fn binary(op: BinOp, left: Value, right: Value) -> Result<Value, String> {
     Ok(result)
 }
 
-
 fn call(name: &str, args: &[Value]) -> Result<Value, String> {
     use Value::*;
 

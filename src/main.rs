@@ -1,6 +1,7 @@
 mod eval;
 mod pixel;
 mod syntax;
+mod viewer;
 
 use minifb::{Key, Window, WindowOptions};
 use pixel::Vec2;
@@ -9,16 +10,16 @@ use syntax::ast::Program;
 
 fn main() {
     let path = std::env::args().nth(1).unwrap_or("examples/sun.fld".into());
-    let program = match load(&path) {
-        Ok(program) => program,
+    let mut live = match viewer::Live::open(path) {
+        Ok(live) => live,
         Err(e) => {
-            eprintln!("{path}: {e}");
+            eprintln!("{e}");
             std::process::exit(1);
         }
     };
 
-    let width = program.header.width as usize;
-    let height = program.header.height as usize;
+    let width = live.program.header.width as usize;
+    let height = live.program.header.height as usize;
     let mut buffer = vec![0; width * height];
     let mut window = Window::new("Fold", width, height, WindowOptions::default())
         .expect("could not open window");
@@ -26,24 +27,20 @@ fn main() {
 
     let start = Instant::now();
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        let time = start.elapsed().as_secs_f32();
+        live.refresh();
 
-        if let Err(e) = render(&program, &mut buffer, width, height, time) {
-            eprintln!("{path}: {e}");
-            std::process::exit(1);
+        if !live.broken {
+            let time = start.elapsed().as_secs_f32();
+            if let Err(e) = render(&live.program, &mut buffer, width, height, time) {
+                eprintln!("{}: {e}", live.path);
+                live.broken = true;
+            }
         }
 
         window
             .update_with_buffer(&buffer, width, height)
             .expect("could not update window");
     }
-}
-
-fn load(path: &str) -> Result<Program, String> {
-    let src = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let (header, rest) = syntax::header::parse_header(&src)?;
-    let tokens = syntax::lexer::lex(rest, 2)?;
-    syntax::parser::parse(header, tokens)
 }
 
 fn render(
