@@ -1,0 +1,53 @@
+# Fold
+
+**Live vector graphics: every pattern is space, folded.**
+
+Fold (`.fld`) is a picture format that is also a tiny, safe program. A `.fld` file loads like an image, but it computes itself from its inputs every frame. So it can animate, react to hover or progress, and be driven by data, while staying small and readable.
+
+```
+~fold v1 256x256
+input progress: 0..1 = 0
+
+let sun = circle(80 + progress * 20)
+let w = 20 + sin(TIME * 2) * 6
+
+draw rect(30, 8) |> at(110, 0) |> around(12) |> spin(TIME * 0.2) |> fill(#ffaa00)
+draw sun |> glow(#ffaa00, w)
+draw sun |> fill(#ffaa00)
+```
+
+A sun with twelve spinning rays and a breathing glow, whose size follows a `progress` value set by the host app. It is sharp at any resolution.
+
+## Why Fold
+
+- **Layers like SVG:** a file is a list of `draw`s, painted in order.
+- **Pixels like a shader:** every shape is a distance function and every look is per-pixel maths. Glows, soft shadows, patterns and noise are one call each.
+- **Folding space:** repeat, mirror and rotate by folding space rather than copying shapes. Twelve rays cost the same as one.
+- **Safe to load from anyone:** no I/O, no scripts, bounded work. A file can only compute pixels from the inputs it declares.
+- **Deterministic:** the same file and inputs give the same pixels on every machine.
+
+Good for animated icons and loaders, UI that reacts to hover or progress, data-driven badges, generative art, and procedural textures in kilobytes.
+
+## Documentation
+
+| Document | For |
+|---|---|
+| [docs/SPEC.md](docs/SPEC.md) | The whole language, on one page |
+| [docs/COOKBOOK.md](docs/COOKBOOK.md) | Recipes for common goals |
+| [src/prelude.fld](src/prelude.fld) | The standard library, written in Fold |
+| [docs/ENGINE.md](docs/ENGINE.md) | Implementers: determinism, limits, host API, conformance |
+| [docs/PRINCIPLES.md](docs/PRINCIPLES.md) | The design rules every change is checked against |
+
+## Status
+
+**Early development.** The engine renders files, reloads them live and runs on all cores. It does not yet implement the language in SPEC.md: files set their colour with `OUT = <colour>`, shapes are plain distance numbers, and there is no prelude. [`examples/sun.fld`](examples/sun.fld) is written for the engine as it is today.
+
+## Running
+
+Requires [Rust](https://rustup.rs).
+
+```bash
+cargo run --release -- examples/sun.fld
+```
+
+A window opens and redraws live as you edit and save the file. The console prints frame timing once a second. Press Escape to close.

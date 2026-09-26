@@ -1,0 +1,116 @@
+// Fold v1 prelude: the standard library, written in Fold.
+// Loaded before every file. It has no header, and it may define capital names.
+// Only the native functions in SPEC.md §8 are built into the engine.
+//
+// Parameter names: sh shape, pt point, fn function, col colour, amt amount, vec vector, anc anchor.
+// Single letters are used only for conventional maths symbols: x y w h r n.
+
+let TAU = 6.28318531
+let DEG = TAU / 360
+
+// Numbers
+
+func clamp(x, lo, hi) { return min(max(x, lo), hi) }
+func mix(from, to, amt) { return from * (1 - amt) + to * amt }
+func smoothstep(lo, hi, x) {
+    let ramp = clamp((x - lo) / (hi - lo), 0, 1)
+    return ramp * ramp * (3 - 2 * ramp)
+}
+func fract(x) { return x - floor(x) }
+func mod(x, by) { return x - by * floor(x / by) }
+
+// Vectors
+
+func length(vec) { return sqrt(vec.x * vec.x + vec.y * vec.y) }
+func angle(vec) { return atan2(vec.y, vec.x) }
+func rotate(vec, amt) {
+    return vec2(vec.x * cos(amt) - vec.y * sin(amt), vec.x * sin(amt) + vec.y * cos(amt))
+}
+
+// Colours
+// Darken with a negative amount, lighten with a positive one. Alpha is kept.
+
+func shade(col, amt) {
+    let to = max(amt, 0)
+    let by = abs(amt)
+    return rgba(mix(col.r, to, by), mix(col.g, to, by), mix(col.b, to, by), col.a)
+}
+
+// Space: every transform folds the point before the shape measures it.
+// fn must not stretch space, or distances stop being true distances.
+
+func fold(sh, fn) { return shape(pt => dist(sh, fn(pt))) }
+
+func at(sh, x, y) { return fold(sh, pt => pt - vec2(x, y)) }
+func spin(sh, amt) { return fold(sh, pt => rotate(pt, -amt)) }
+func mirror(sh) { return fold(sh, pt => vec2(abs(pt.x), pt.y)) }
+func repeat(sh, dx, dy) {
+    return fold(sh, pt => pt - vec2(dx * floor(pt.x / dx + 0.5), dy * floor(pt.y / dy + 0.5)))
+}
+func around(sh, n) {
+    return fold(sh, pt => rotate(pt, -TAU / n * floor(angle(pt) / (TAU / n) + 0.5)))
+}
+
+// Scaling stretches space, so the distance is corrected afterwards.
+func scale(sh, amt) { return shape(pt => dist(sh, pt / amt) * amt) }
+
+// Combining shapes
+
+func union(sh, other) { return shape(pt => min(dist(sh, pt), dist(other, pt))) }
+func intersect(sh, other) { return shape(pt => max(dist(sh, pt), dist(other, pt))) }
+func subtract(sh, other) { return shape(pt => max(dist(sh, pt), -dist(other, pt))) }
+func smooth_union(sh, other, amt) {
+    return shape(pt => smooth_min(dist(sh, pt), dist(other, pt), amt))
+}
+func smooth_min(one, two, amt) {
+    let blend = clamp(0.5 + 0.5 * (two - one) / amt, 0, 1)
+    return mix(two, one, blend) - amt * blend * (1 - blend)
+}
+
+// Grow outwards with a positive amount, shrink inwards with a negative one.
+func grow(sh, amt) { return shape(pt => dist(sh, pt) - amt) }
+func outline(sh, width) { return shape(pt => abs(dist(sh, pt)) - width / 2) }
+// Inside becomes outside, so any outside effect can be used inside.
+func invert(sh) { return shape(pt => -dist(sh, pt)) }
+
+// More shapes
+
+func rounded_rect(w, h, r) { return grow(rect(w - 2 * r, h - 2 * r), r) }
+
+// Layout: anchors are relative positions on a box, from (-1, -1) to (1, 1).
+// anchor(sh, anc) is native: it reads the shape's bounding box.
+
+let TOP_LEFT = vec2(-1, -1)
+let TOP = vec2(0, -1)
+let TOP_RIGHT = vec2(1, -1)
+let LEFT = vec2(-1, 0)
+let MID = vec2(0, 0)
+let RIGHT = vec2(1, 0)
+let BOTTOM_LEFT = vec2(-1, 1)
+let BOTTOM = vec2(0, 1)
+let BOTTOM_RIGHT = vec2(1, 1)
+let FRAME = rect(SIZE.x, SIZE.y)
+
+func pin(sh, anc, to) {
+    let by = to - anchor(sh, anc)
+    return fold(sh, pt => pt - by)
+}
+
+// Looks: each returns a colour for this pixel, ready to draw.
+// A look is a profile of distance. invert flips its side; cover masks it.
+
+func cover(sh) { return clamp(0.5 - dist(sh, POS) / PX, 0, 1) }
+func fill(sh, col) { return col * cover(sh) }
+func soft(sh, col, amt) { return col * (1 - smoothstep(-amt, amt, dist(sh, POS))) }
+func glow(sh, col, amt) { return col * exp(-max(dist(sh, POS), 0) / amt) }
+
+// Patterns
+
+func noise(pt) {
+    let cell = vec2(floor(pt.x), floor(pt.y))
+    let inside = pt - cell
+    let ease = inside * inside * (vec2(3, 3) - inside * 2)
+    let top = mix(hash(cell), hash(cell + vec2(1, 0)), ease.x)
+    let bottom = mix(hash(cell + vec2(0, 1)), hash(cell + vec2(1, 1)), ease.x)
+    return mix(top, bottom, ease.y)
+}
