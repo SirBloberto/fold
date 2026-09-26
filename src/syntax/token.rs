@@ -28,9 +28,14 @@ pub enum Token {
     Eof,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Pos {
+    pub line: usize,
+    pub col: usize,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spanned {
     pub token: Token,
-    pub line: usize,
-    pub col: usize,
+    pub pos: Pos,
 }

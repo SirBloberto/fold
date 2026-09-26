@@ -1,3 +1,4 @@
+#[derive(Debug, Clone, PartialEq)]
 pub struct Header {
     pub version: u32,
     pub width: u32,

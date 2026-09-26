@@ -1,4 +1,4 @@
-use super::token::{Spanned, Token};
+use super::token::{Pos, Spanned, Token};
 use std::iter::Peekable;
 use std::str::Chars;
 
@@ -12,21 +12,23 @@ pub fn lex(src: &str, first_line: usize) -> Result<Vec<Spanned>, String> {
 
     loop {
         lexer.skip_blanks();
-        let (line, col) = (lexer.line, lexer.col);
+        let pos = Pos {
+            line: lexer.line,
+            col: lexer.col,
+        };
 
         let Some(c) = lexer.bump() else {
             tokens.push(Spanned {
                 token: Token::Eof,
-                line,
-                col,
+                pos,
             });
             return Ok(tokens);
         };
 
         let token = lexer
             .token(c)
-            .map_err(|e| format!("{e} at line {line}, column {col}"))?;
-        tokens.push(Spanned { token, line, col });
+            .map_err(|e| format!("{e} at line {}, column {}", pos.line, pos.col))?;
+        tokens.push(Spanned { token, pos });
     }
 }
 
