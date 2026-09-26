@@ -1,4 +1,5 @@
 mod pixel;
+mod syntax;
 use pixel::{Colour, Vec2, circle, fill, glow};
 
 use minifb::{Key, Window, WindowOptions};
@@ -18,7 +19,6 @@ fn main() {
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let t = start.elapsed().as_secs_f32();
 
-        let orange = Colour::hex(0xffaa00);
         for y in 0..HEIGHT {
             for x in 0..WIDTH {
                 let u = x as f32 / WIDTH as f32;
@@ -29,13 +29,7 @@ fn main() {
                     x: x as f32 - WIDTH as f32 / 2.0,
                     y: y as f32 - HEIGHT as f32 / 2.0,
                 };
-                let centre = Vec2 { x: 0.0, y: 0.0 };
-                let r = 100.0;
-                let d = circle(p - centre, r);
-                let w = 20.0 + (t * 2.0).sin() * 6.0;
-                
-                let col = fill(d, orange) + glow(d, orange, w);
-                buffer[y * WIDTH + x] = col.to_u32();
+                buffer[y * WIDTH + x] = scene(p, uv, t).to_u32();
             }
         }
 
@@ -43,4 +37,11 @@ fn main() {
             .update_with_buffer(&buffer, WIDTH, HEIGHT)
             .expect("could not update window");
     }
+}
+
+fn scene(p: Vec2, _uv: Vec2, t: f32) -> Colour {
+    let orange = Colour::hex(0xffaa00);
+    let d = circle(p, 100.0);
+    let w = 20.0 + (t * 2.0).sin() * 6.0;
+    fill(d, orange) + glow(d, orange, w)
 }

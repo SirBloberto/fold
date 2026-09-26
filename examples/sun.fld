@@ -1,0 +1,8 @@
+~fold v1 256x256
+
+input progress: 0..1 = 0
+
+// the sun: a disc with a breathing glow
+let d = circle(P, 80 + progress * 20)
+let w = 20 + sin(TIME * 2) * 6
+OUT = fill(d, #ffaa00) + glow(d, #ffaa00, w)
