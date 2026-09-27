@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use crate::pixel::{self, Rgba, Vec2};
+use crate::shape::{self, Bounds};
 use crate::syntax::ast::{BinOp, Expr, ExprKind, Program, Stmt, StmtKind};
 use crate::syntax::token::Pos;
 
@@ -10,6 +11,7 @@ pub enum Value<'a> {
     Vec2(Vec2),
     Rgba(Rgba),
     Func(Rc<Closure<'a>>),
+    Shape(Rc<Shape<'a>>),
 }
 
 pub struct Closure<'a> {
@@ -23,6 +25,18 @@ enum Body<'a> {
     Expr(&'a Expr),
 }
 
+pub struct Shape<'a> {
+    kind: ShapeKind<'a>,
+    bounds: Bounds,
+}
+
+enum ShapeKind<'a> {
+    Circle(f32),
+    Rect(Vec2),
+    Segment(Vec2, Vec2),
+    Custom(Rc<Closure<'a>>),
+}
+
 impl Value<'_> {
     fn type_name(&self) -> &'static str {
         match self {
@@ -30,6 +44,7 @@ impl Value<'_> {
             Value::Vec2(_) => "vec2",
             Value::Rgba(_) => "rgba",
             Value::Func(_) => "func",
+            Value::Shape(_) => "shape",
         }
     }
 }
@@ -100,7 +115,7 @@ impl<'a> Env<'a> {
 
     fn lookup(&self, name: &str) -> Option<Value<'a>> {
         let builtin = match name {
-            "P" => Value::Vec2(self.pixel.p),
+            "POS" | "P" => Value::Vec2(self.pixel.p),
             "UV" => Value::Vec2(self.pixel.uv),
             "TIME" => Value::Num(self.pixel.time),
             "PX" => Value::Num(self.pixel.px),
@@ -147,7 +162,7 @@ impl<'a> Env<'a> {
                         let message = format!("`{name}` is a {}, not a func", other.type_name());
                         return Err(at(&message, expr.pos));
                     }
-                    None => call(name, &args).map_err(|e| at(&e, expr.pos))?,
+                    None => self.native(name, &args, expr.pos)?,
                 }
             }
             ExprKind::Field { target, field } => match (self.expr(target)?, field.as_str()) {
@@ -207,6 +222,66 @@ impl<'a> Env<'a> {
         }
         Err(at("this func ended without `return`", pos))
     }
+
+    fn native(&self, name: &str, args: &[Value<'a>], pos: Pos) -> Result<Value<'a>, String> {
+        use Value::*;
+
+        let result = match (name, args) {
+            ("sin", [Num(x)]) => Num(x.sin()),
+
+            ("vec2", [Num(x), Num(y)]) => Vec2(pixel::vec2(*x, *y)),
+
+            ("circle", [Num(r)]) => {
+                new_shape(ShapeKind::Circle(*r), Bounds::around(pixel::vec2(*r, *r)))
+            }
+            ("rect", [Num(w), Num(h)]) => {
+                let half = pixel::vec2(w / 2.0, h / 2.0);
+                new_shape(ShapeKind::Rect(half), Bounds::around(half))
+            }
+            ("segment", [Vec2(from), Vec2(to)]) => {
+                new_shape(ShapeKind::Segment(*from, *to), Bounds::between(*from, *to))
+            }
+            ("shape", [Func(fn_)]) => new_shape(
+                ShapeKind::Custom(fn_.clone()),
+                Bounds::around(self.pixel.size * 0.5),
+            ),
+            ("dist", [Shape(sh), Vec2(pt)]) => Num(self.dist(sh, *pt, pos)?),
+            ("anchor", [Shape(sh), Vec2(anc)]) => Vec2(sh.bounds.anchor(*anc)),
+
+            ("circle", [Vec2(p), Num(r)]) => Num(shape::circle(*p, *r)),
+            ("fill", [Num(d), Rgba(c)]) => Rgba(pixel::fill(*d, *c)),
+            ("glow", [Num(d), Rgba(c), Num(w)]) => Rgba(pixel::glow(*d, *c, *w)),
+
+            _ => {
+                let message = format!("unknown function `{name}`, or wrong arguments");
+                return Err(at(&message, pos));
+            }
+        };
+        Ok(result)
+    }
+
+    fn dist(&self, sh: &Shape<'a>, pt: Vec2, pos: Pos) -> Result<f32, String> {
+        let d = match &sh.kind {
+            ShapeKind::Circle(r) => shape::circle(pt, *r),
+            ShapeKind::Rect(half) => shape::rect(pt, *half),
+            ShapeKind::Segment(from, to) => shape::segment(pt, *from, *to),
+            ShapeKind::Custom(fn_) => match self.apply(fn_, vec![Value::Vec2(pt)], pos)? {
+                Value::Num(d) => d,
+                other => {
+                    let message = format!(
+                        "a shape's function must return a num, not a {}",
+                        other.type_name()
+                    );
+                    return Err(at(&message, pos));
+                }
+            },
+        };
+        Ok(d)
+    }
+}
+
+fn new_shape<'a>(kind: ShapeKind<'a>, bounds: Bounds) -> Value<'a> {
+    Value::Shape(Rc::new(Shape { kind, bounds }))
 }
 
 fn binary<'a>(op: BinOp, left: Value<'a>, right: Value<'a>) -> Result<Value<'a>, String> {
@@ -243,22 +318,6 @@ fn symbol(op: BinOp) -> &'static str {
         BinOp::Mul => "*",
         BinOp::Div => "/",
     }
-}
-
-fn call<'a>(name: &str, args: &[Value<'a>]) -> Result<Value<'a>, String> {
-    use Value::*;
-
-    let result = match (name, args) {
-        ("sin", [Num(x)]) => Num(x.sin()),
-
-        ("circle", [Vec2(p), Num(r)]) => Num(pixel::circle(*p, *r)),
-
-        ("fill", [Num(d), Rgba(c)]) => Rgba(pixel::fill(*d, *c)),
-        ("glow", [Num(d), Rgba(c), Num(w)]) => Rgba(pixel::glow(*d, *c, *w)),
-
-        _ => return Err(format!("unknown function `{name}`, or wrong arguments")),
-    };
-    Ok(result)
 }
 
 fn at(message: &str, pos: Pos) -> String {
@@ -379,5 +438,66 @@ mod tests {
     fn calling_a_num_is_an_error() {
         let error = num("let r = 5\nlet result = r(2)").unwrap_err();
         assert!(error.contains("`r` is a num, not a func"), "{error}");
+    }
+
+    #[test]
+    fn circle_distance() {
+        assert_eq!(num("let result = dist(circle(10), vec2(30, 40))"), Ok(40.0));
+    }
+
+    #[test]
+    fn rect_distance_outside_and_inside() {
+        assert_eq!(num("let result = dist(rect(20, 10), vec2(15, 0))"), Ok(5.0));
+        assert_eq!(num("let result = dist(rect(20, 10), vec2(0, 0))"), Ok(-5.0));
+    }
+
+    #[test]
+    fn segment_distance() {
+        let line = "let line = segment(vec2(-10, 0), vec2(10, 0))\n";
+        assert_eq!(
+            num(&format!("{line}let result = dist(line, vec2(0, 7))")),
+            Ok(7.0)
+        );
+        assert_eq!(
+            num(&format!("{line}let result = dist(line, vec2(13, 4))")),
+            Ok(5.0)
+        );
+    }
+
+    #[test]
+    fn custom_shape_distance() {
+        let src = "let ring = shape(pt => dist(circle(10), pt) - 2)\nlet result = dist(ring, vec2(20, 0))";
+        assert_eq!(num(src), Ok(8.0));
+    }
+
+    #[test]
+    fn shape_moved_by_fold() {
+        let src = "let moved = shape(pt => dist(circle(10), pt - vec2(100, 0)))\nlet result = dist(moved, vec2(100, 0))";
+        assert_eq!(num(src), Ok(-10.0));
+    }
+
+    #[test]
+    fn anchor_reads_the_box() {
+        assert_eq!(
+            num("let result = anchor(rect(20, 10), vec2(1, 1)).x"),
+            Ok(10.0)
+        );
+        assert_eq!(
+            num("let result = anchor(rect(20, 10), vec2(0, -1)).y"),
+            Ok(-5.0)
+        );
+    }
+
+    #[test]
+    fn custom_shape_must_return_num() {
+        let error =
+            num("let bad = shape(pt => pt)\nlet result = dist(bad, vec2(0, 0))").unwrap_err();
+        assert!(error.contains("must return a num, not a vec2"), "{error}");
+    }
+
+    #[test]
+    fn shapes_are_not_numbers() {
+        let error = num("let result = circle(10) + 1").unwrap_err();
+        assert!(error.contains("can't use `+` on shape and num"), "{error}");
     }
 }

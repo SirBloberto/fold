@@ -1,5 +1,6 @@
 mod eval;
 mod pixel;
+mod shape;
 mod syntax;
 mod viewer;
 

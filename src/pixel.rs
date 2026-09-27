@@ -1,4 +1,4 @@
-use std::ops::{Add, Mul, Sub};
+use std::ops::{Add, Div, Mul, Sub};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Vec2 {
@@ -6,9 +6,17 @@ pub struct Vec2 {
     pub y: f32,
 }
 
+pub fn vec2(x: f32, y: f32) -> Vec2 {
+    Vec2 { x, y }
+}
+
 impl Vec2 {
     pub fn length(self) -> f32 {
-        (self.x * self.x + self.y * self.y).sqrt()
+        self.dot(self).sqrt()
+    }
+
+    pub fn dot(self, o: Vec2) -> f32 {
+        self.x * o.x + self.y * o.y
     }
 }
 
@@ -35,13 +43,12 @@ impl Rgba {
     }
 }
 
-impl Add for Rgba {
-    type Output = Rgba;
-    fn add(self, o: Rgba) -> Rgba {
-        Rgba {
-            r: self.r + o.r,
-            g: self.g + o.g,
-            b: self.b + o.b,
+impl Add for Vec2 {
+    type Output = Vec2;
+    fn add(self, o: Vec2) -> Vec2 {
+        Vec2 {
+            x: self.x + o.x,
+            y: self.y + o.y,
         }
     }
 }
@@ -52,6 +59,57 @@ impl Sub for Vec2 {
         Vec2 {
             x: self.x - o.x,
             y: self.y - o.y,
+        }
+    }
+}
+
+impl Mul<f32> for Vec2 {
+    type Output = Vec2;
+    fn mul(self, k: f32) -> Vec2 {
+        Vec2 {
+            x: self.x * k,
+            y: self.y * k,
+        }
+    }
+}
+
+impl Div<f32> for Vec2 {
+    type Output = Vec2;
+    fn div(self, k: f32) -> Vec2 {
+        Vec2 {
+            x: self.x / k,
+            y: self.y / k,
+        }
+    }
+}
+
+impl Mul for Vec2 {
+    type Output = Vec2;
+    fn mul(self, o: Vec2) -> Vec2 {
+        Vec2 {
+            x: self.x * o.x,
+            y: self.y * o.y,
+        }
+    }
+}
+
+impl Div for Vec2 {
+    type Output = Vec2;
+    fn div(self, o: Vec2) -> Vec2 {
+        Vec2 {
+            x: self.x / o.x,
+            y: self.y / o.y,
+        }
+    }
+}
+
+impl Add for Rgba {
+    type Output = Rgba;
+    fn add(self, o: Rgba) -> Rgba {
+        Rgba {
+            r: self.r + o.r,
+            g: self.g + o.g,
+            b: self.b + o.b,
         }
     }
 }
@@ -78,10 +136,6 @@ pub fn step(edge: f32, x: f32) -> f32 {
 pub fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
     let k = ((x - a) / (b - a)).clamp(0.0, 1.0);
     k * k * (3.0 - 2.0 * k)
-}
-
-pub fn circle(p: Vec2, r: f32) -> f32 {
-    p.length() - r
 }
 
 pub fn fill(d: f32, col: Rgba) -> Rgba {
