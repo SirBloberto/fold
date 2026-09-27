@@ -5,13 +5,17 @@ use super::token::{Pos, Spanned, Token};
 const MAX_DEPTH: usize = 256;
 
 pub fn parse(header: Header, tokens: Vec<Spanned>) -> Result<Program, String> {
+    let body = parse_body(tokens)?;
+    Ok(Program { header, body })
+}
+
+pub fn parse_body(tokens: Vec<Spanned>) -> Result<Vec<Stmt>, String> {
     let mut parser = Parser {
         tokens,
         index: 0,
         depth: 0,
     };
-    let body = parser.statements(Token::Eof)?;
-    Ok(Program { header, body })
+    parser.statements(Token::Eof)
 }
 
 struct Parser {

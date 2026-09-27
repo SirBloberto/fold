@@ -86,6 +86,7 @@ fn render_rows(
         x: width as f32,
         y: height as f32,
     };
+    let prelude = eval::Prelude::load(size)?;
 
     for (i, out) in pixels.iter_mut().enumerate() {
         let x = (i % width) as f32 + 0.5;
@@ -103,7 +104,7 @@ fn render_rows(
             px: 1.0,
             size,
         };
-        *out = eval::run(program, &pixel)?.to_u32();
+        *out = eval::run(program, &prelude, pixel)?.to_u32();
     }
     Ok(())
 }

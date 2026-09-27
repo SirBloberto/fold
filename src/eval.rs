@@ -1,9 +1,17 @@
 use std::rc::Rc;
+use std::sync::LazyLock;
 
 use crate::pixel::{self, Rgba, Vec2};
 use crate::shape::{self, Bounds};
 use crate::syntax::ast::{BinOp, Expr, ExprKind, Program, Stmt, StmtKind};
+use crate::syntax::lexer::lex;
+use crate::syntax::parser::parse_body;
 use crate::syntax::token::Pos;
+
+static PRELUDE: LazyLock<Vec<Stmt>> = LazyLock::new(|| {
+    let tokens = lex(include_str!("prelude.fld"), 1).expect("the prelude lexes");
+    parse_body(tokens).expect("the prelude parses")
+});
 
 #[derive(Clone)]
 pub enum Value<'a> {
@@ -49,6 +57,7 @@ impl Value<'_> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct Pixel {
     pub p: Vec2,
     pub uv: Vec2,
@@ -57,9 +66,37 @@ pub struct Pixel {
     pub size: Vec2,
 }
 
-pub fn run(program: &Program, pixel: &Pixel) -> Result<Rgba, String> {
+pub struct Prelude {
+    vars: Vec<(&'static str, Value<'static>)>,
+}
+
+impl Prelude {
+    pub fn load(size: Vec2) -> Result<Prelude, String> {
+        let origin = pixel::vec2(0.0, 0.0);
+        let mut env = Env {
+            pixel: Pixel {
+                p: origin,
+                uv: origin,
+                time: 0.0,
+                px: 1.0,
+                size,
+            },
+            globals: &[],
+            vars: Vec::new(),
+            out: None,
+        };
+        for stmt in PRELUDE.iter() {
+            env.statement(stmt)
+                .map_err(|e| format!("in the prelude: {e}"))?;
+        }
+        Ok(Prelude { vars: env.vars })
+    }
+}
+
+pub fn run(program: &Program, prelude: &Prelude, pixel: Pixel) -> Result<Rgba, String> {
     let mut env = Env {
         pixel,
+        globals: &prelude.vars,
         vars: Vec::new(),
         out: None,
     };
@@ -70,7 +107,8 @@ pub fn run(program: &Program, pixel: &Pixel) -> Result<Rgba, String> {
 }
 
 struct Env<'a> {
-    pixel: &'a Pixel,
+    pixel: Pixel,
+    globals: &'a [(&'a str, Value<'a>)],
     vars: Vec<(&'a str, Value<'a>)>,
     out: Option<Rgba>,
 }
@@ -125,6 +163,7 @@ impl<'a> Env<'a> {
                     .vars
                     .iter()
                     .rev()
+                    .chain(self.globals.iter().rev())
                     .find(|(var, _)| *var == name)
                     .map(|(_, value)| value.clone());
             }
@@ -196,6 +235,7 @@ impl<'a> Env<'a> {
 
         let mut env = Env {
             pixel: self.pixel,
+            globals: self.globals,
             vars: closure.captured.clone(),
             out: None,
         };
@@ -228,8 +268,19 @@ impl<'a> Env<'a> {
 
         let result = match (name, args) {
             ("sin", [Num(x)]) => Num(x.sin()),
+            ("cos", [Num(x)]) => Num(x.cos()),
+            ("atan2", [Num(y), Num(x)]) => Num(y.atan2(*x)),
+            ("sqrt", [Num(x)]) => Num(x.sqrt()),
+            ("exp", [Num(x)]) => Num(x.exp()),
+            ("pow", [Num(x), Num(by)]) => Num(x.powf(*by)),
+            ("floor", [Num(x)]) => Num(x.floor()),
+            ("abs", [Num(x)]) => Num(x.abs()),
+            ("min", [Num(a), Num(b)]) => Num(a.min(*b)),
+            ("max", [Num(a), Num(b)]) => Num(a.max(*b)),
 
             ("vec2", [Num(x), Num(y)]) => Vec2(pixel::vec2(*x, *y)),
+
+            ("hash", [Vec2(pt)]) => Num(pixel::hash(*pt)),
 
             ("circle", [Num(r)]) => {
                 new_shape(ShapeKind::Circle(*r), Bounds::around(pixel::vec2(*r, *r)))
@@ -248,12 +299,12 @@ impl<'a> Env<'a> {
             ("dist", [Shape(sh), Vec2(pt)]) => Num(self.dist(sh, *pt, pos)?),
             ("anchor", [Shape(sh), Vec2(anc)]) => Vec2(sh.bounds.anchor(*anc)),
 
-            ("circle", [Vec2(p), Num(r)]) => Num(shape::circle(*p, *r)),
-            ("fill", [Num(d), Rgba(c)]) => Rgba(pixel::fill(*d, *c)),
-            ("glow", [Num(d), Rgba(c), Num(w)]) => Rgba(pixel::glow(*d, *c, *w)),
-
             _ => {
-                let message = format!("unknown function `{name}`, or wrong arguments");
+                let types: Vec<&str> = args.iter().map(Value::type_name).collect();
+                let message = format!(
+                    "unknown function `{name}`, or it can't take ({})",
+                    types.join(", ")
+                );
                 return Err(at(&message, pos));
             }
         };
@@ -294,7 +345,13 @@ fn binary<'a>(op: BinOp, left: Value<'a>, right: Value<'a>) -> Result<Value<'a>,
         (Mul, Num(a), Num(b)) => Num(a * b),
         (Div, Num(a), Num(b)) => Num(a / b),
 
+        (Add, Vec2(a), Vec2(b)) => Vec2(a + b),
         (Sub, Vec2(a), Vec2(b)) => Vec2(a - b),
+        (Mul, Vec2(a), Vec2(b)) => Vec2(a * b),
+        (Div, Vec2(a), Vec2(b)) => Vec2(a / b),
+
+        (Mul, Vec2(v), Num(k)) | (Mul, Num(k), Vec2(v)) => Vec2(v * k),
+        (Div, Vec2(v), Num(k)) => Vec2(v / k),
 
         (Add, Rgba(a), Rgba(b)) => Rgba(a + b),
         (Mul, Rgba(c), Num(k)) | (Mul, Num(k), Rgba(c)) => Rgba(c * k),
@@ -335,15 +392,17 @@ mod tests {
         let src = format!("~fold v1 256x256\n{body}");
         let (header, rest) = parse_header(&src)?;
         let program = parse(header, lex(rest, 2)?)?;
-        let pixel = Pixel {
-            p: Vec2 { x: 0.0, y: 0.0 },
-            uv: Vec2 { x: 0.0, y: 0.0 },
-            time: 0.0,
-            px: 1.0,
-            size: Vec2 { x: 256.0, y: 256.0 },
-        };
+        let size = Vec2 { x: 256.0, y: 256.0 };
+        let prelude = Prelude::load(size)?;
         let mut env = Env {
-            pixel: &pixel,
+            pixel: Pixel {
+                p: Vec2 { x: 0.0, y: 0.0 },
+                uv: Vec2 { x: 0.0, y: 0.0 },
+                time: 0.0,
+                px: 1.0,
+                size,
+            },
+            globals: &prelude.vars,
             vars: Vec::new(),
             out: None,
         };
@@ -499,5 +558,128 @@ mod tests {
     fn shapes_are_not_numbers() {
         let error = num("let result = circle(10) + 1").unwrap_err();
         assert!(error.contains("can't use `+` on shape and num"), "{error}");
+    }
+
+    #[test]
+    fn maths_natives() {
+        assert_eq!(num("let result = cos(0)"), Ok(1.0));
+        assert_eq!(num("let result = atan2(0, 1)"), Ok(0.0));
+        assert_eq!(num("let result = sqrt(16)"), Ok(4.0));
+        assert_eq!(num("let result = exp(0)"), Ok(1.0));
+        assert_eq!(num("let result = pow(2, 10)"), Ok(1024.0));
+        assert_eq!(num("let result = floor(-1.5)"), Ok(-2.0));
+        assert_eq!(num("let result = abs(-3)"), Ok(3.0));
+        assert_eq!(num("let result = min(2, 5)"), Ok(2.0));
+        assert_eq!(num("let result = max(2, 5)"), Ok(5.0));
+    }
+
+    #[test]
+    fn vec2_arithmetic() {
+        assert_eq!(num("let result = (vec2(1, 2) + vec2(3, 4)).y"), Ok(6.0));
+        assert_eq!(num("let result = (vec2(1, 2) * vec2(3, 4)).y"), Ok(8.0));
+        assert_eq!(num("let result = (vec2(6, 8) / vec2(3, 4)).x"), Ok(2.0));
+        assert_eq!(num("let result = (2 * vec2(1, 2)).y"), Ok(4.0));
+        assert_eq!(num("let result = (vec2(1, 2) * 2).y"), Ok(4.0));
+        assert_eq!(num("let result = (vec2(6, 8) / 2).y"), Ok(4.0));
+    }
+
+    #[test]
+    fn arithmetic_outside_the_table_is_an_error() {
+        let error = num("let result = 1 / vec2(1, 2)").unwrap_err();
+        assert!(error.contains("can't use `/` on num and vec2"), "{error}");
+        let error = num("let result = vec2(1, 2) + 1").unwrap_err();
+        assert!(error.contains("can't use `+` on vec2 and num"), "{error}");
+    }
+
+    #[test]
+    fn hash_is_repeatable_and_in_range() {
+        let first = num("let result = hash(vec2(3, 7))").unwrap();
+        assert_eq!(num("let result = hash(vec2(3, 7))"), Ok(first));
+        assert!((0.0..1.0).contains(&first));
+        assert_ne!(num("let result = hash(vec2(7, 3))"), Ok(first));
+    }
+
+    #[test]
+    fn hash_treats_negative_zero_as_zero() {
+        assert_eq!(
+            num("let result = hash(vec2(-0, 0))"),
+            num("let result = hash(vec2(0, 0))")
+        );
+    }
+
+    #[test]
+    fn wrong_arguments_name_the_types() {
+        let error = num("let result = sqrt(vec2(1, 2))").unwrap_err();
+        assert!(error.contains("can't take (vec2)"), "{error}");
+    }
+
+    fn close(body: &str, want: f32) {
+        let got = num(body).unwrap();
+        assert!((got - want).abs() < 1e-3, "{body}: got {got}, want {want}");
+    }
+
+    #[test]
+    fn prelude_maths() {
+        close("let result = clamp(5, 0, 1)", 1.0);
+        close("let result = mix(2, 4, 0.5)", 3.0);
+        close("let result = smoothstep(0, 1, 0.5)", 0.5);
+        close("let result = length(vec2(3, 4))", 5.0);
+        close("let result = DEG * 360", 6.283_185);
+    }
+
+    #[test]
+    fn prelude_moves_shapes() {
+        close(
+            "let result = dist(circle(10) |> at(100, 0), vec2(100, 0))",
+            -10.0,
+        );
+        close(
+            "let result = dist(circle(10) |> at(50, 0) |> mirror, vec2(-50, 0))",
+            -10.0,
+        );
+        close(
+            "let result = dist(circle(10) |> at(100, 0) |> spin(90 * DEG), vec2(0, 100))",
+            -10.0,
+        );
+        close(
+            "let result = dist(circle(10) |> pin(LEFT, vec2(0, 0)), vec2(10, 0))",
+            -10.0,
+        );
+    }
+
+    #[test]
+    fn prelude_combines_shapes() {
+        close(
+            "let result = dist(union(circle(10), circle(10) |> at(100, 0)), vec2(100, 0))",
+            -10.0,
+        );
+        close(
+            "let result = dist(circle(10) |> outline(2), vec2(10, 0))",
+            -1.0,
+        );
+        close(
+            "let result = dist(rounded_rect(40, 20, 5), vec2(0, 0))",
+            -10.0,
+        );
+    }
+
+    #[test]
+    fn prelude_frame_and_cover() {
+        close("let result = anchor(FRAME, TOP_RIGHT).x", 128.0);
+        close("let result = cover(circle(10))", 1.0);
+        close("let result = cover(circle(10) |> at(100, 0))", 0.0);
+    }
+
+    #[test]
+    fn prelude_noise_in_range() {
+        let n = num("let result = noise(vec2(1.5, 2.5))").unwrap();
+        assert!((0.0..1.0).contains(&n), "{n}");
+    }
+
+    #[test]
+    fn prelude_keeps_its_own_names() {
+        let src = "func clamp(x, lo, hi) { return 99 }\n";
+        close(&format!("{src}let result = smoothstep(0, 1, 0.5)"), 0.5);
+        close(&format!("{src}let result = clamp(0, 0, 1)"), 99.0);
     }
 }
