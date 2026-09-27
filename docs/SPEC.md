@@ -53,6 +53,8 @@ Types are inferred. A function is checked at each call with the types it is give
 
 `input`, `func` and `draw` appear only at the top level. A file may redefine a lowercase prelude name, such as `glow`. The new definition applies only to the file's own code: prelude functions always use the prelude's own names. Capital names can never be redefined.
 
+A name is visible from its definition to the end of the file or function that defines it. While it is visible, no `let`, parameter or inline function parameter may reuse it, so a name always means one thing. Separate functions may use the same parameter names.
+
 ## 5. Built-ins
 | Name | Meaning |
 |---|---|
@@ -61,7 +63,7 @@ Types are inferred. A function is checked at each call with the types it is give
 | `SIZE` | The canvas size from the header, as a vec2 |
 | `PX` | The size of one screen pixel, in units. It changes with the output size: a `256x256` file shown at 512 pixels wide has `PX = 0.5`. The prelude uses it for crisp edges at any resolution. |
 
-**Angles** are in radians. `TAU` is one full turn and `DEG` is one degree, so `spin(45 * DEG)` turns an eighth of a turn. Because y grows down, **positive angles turn clockwise** on screen.
+**Angles** are in radians. `TAU` is one full turn and `DEG` is one degree, so `spin(45 * DEG)` turns an eighth of a turn. Because y grows down, **positive angles turn clockwise** on screen. `around(sh, n)` repeats a shape `n` times around the centre. Like every angle in Fold, it starts from the positive x axis: place the first copy at `(r, 0)`.
 
 **Anchors.** The prelude names nine points on any box, as relative positions from `(-1, -1)` to `(1, 1)`: `TOP_LEFT TOP TOP_RIGHT LEFT MID RIGHT BOTTOM_LEFT BOTTOM BOTTOM_RIGHT`. `FRAME` is the canvas as a shape. `anchor(sh, anc)` gives a point on a shape's box, and `pin(sh, anc, to)` moves a shape so that its anchor sits on a point. `at` moves a shape *by* an amount; `pin` moves it *to* a place:
 ```

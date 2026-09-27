@@ -5,12 +5,12 @@ use super::token::{Pos, Spanned, Token};
 const MAX_DEPTH: usize = 256;
 
 pub fn parse(header: Header, tokens: Vec<Spanned>) -> Result<Program, String> {
-    let body = Parser::new(tokens, false).statements(Token::Eof, Vec::new())?;
+    let body = Parser::new(tokens, false).statements(Token::Eof)?;
     Ok(Program { header, body })
 }
 
 pub fn parse_prelude(tokens: Vec<Spanned>) -> Result<Vec<Stmt>, String> {
-    Parser::new(tokens, true).statements(Token::Eof, Vec::new())
+    Parser::new(tokens, true).statements(Token::Eof)
 }
 
 struct Parser {
@@ -18,6 +18,7 @@ struct Parser {
     index: usize,
     depth: usize,
     capitals: bool,
+    visible: Vec<String>,
 }
 
 impl Parser {
@@ -27,14 +28,17 @@ impl Parser {
             index: 0,
             depth: 0,
             capitals,
+            visible: Vec::new(),
         }
     }
 
-    fn statements(&mut self, end: Token, mut defined: Vec<String>) -> Result<Vec<Stmt>, String> {
+    fn statements(&mut self, end: Token) -> Result<Vec<Stmt>, String> {
+        let outer = self.visible.len();
         let mut body = Vec::new();
         loop {
             self.skip_newlines();
             if *self.peek() == end || *self.peek() == Token::Eof {
+                self.visible.truncate(outer);
                 return Ok(body);
             }
             let stmt = self.statement()?;
@@ -42,13 +46,18 @@ impl Parser {
             | StmtKind::Let { name, .. }
             | StmtKind::Func { name, .. } = &stmt.kind
             {
-                if defined.contains(name) {
-                    return Err(error_at(&format!("`{name}` is already defined"), stmt.pos));
-                }
-                defined.push(name.clone());
+                self.not_visible(name, stmt.pos)?;
+                self.visible.push(name.clone());
             }
             body.push(stmt);
         }
+    }
+
+    fn not_visible(&self, name: &str, pos: Pos) -> Result<(), String> {
+        if self.visible.iter().any(|seen| seen == name) {
+            return Err(error_at(&format!("`{name}` is already defined"), pos));
+        }
+        Ok(())
     }
 
     fn statement(&mut self) -> Result<Stmt, String> {
@@ -104,9 +113,13 @@ impl Parser {
             if params[..i].contains(param) {
                 return Err(self.error(&format!("`{param}` is already a parameter")));
             }
+            self.not_visible(param, self.pos())?;
         }
         self.expect(Token::LBrace, "`{` to start the function body")?;
-        let body = self.statements(Token::RBrace, params.clone())?;
+        let outer = self.visible.len();
+        self.visible.extend(params.iter().cloned());
+        let body = self.statements(Token::RBrace)?;
+        self.visible.truncate(outer);
         self.expect(Token::RBrace, "`}` to end the function body")?;
         self.leave();
         Ok(StmtKind::Func { name, params, body })
@@ -147,9 +160,12 @@ impl Parser {
     fn lambda(&mut self) -> Result<Expr, String> {
         let pos = self.pos();
         let param = self.new_name()?;
+        self.not_visible(&param, pos)?;
         self.bump();
         self.skip_newlines();
+        self.visible.push(param.clone());
         let body = self.expr()?;
+        self.visible.pop();
         Ok(Expr {
             kind: ExprKind::Lambda {
                 param,

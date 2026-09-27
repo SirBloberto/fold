@@ -1,0 +1,116 @@
+~fold v1 680x460
+
+input kp: 0..1 = 0.55
+input flow: 0..3 = 1
+input folds: 1..4 = 2
+input storm: 0..1 = 0
+input pan: -300..300 = 0
+input tilt: -40..40 = 0
+
+let horizon = 129
+let energy = min(kp + storm * 0.5, 1)
+let t = TIME * flow * (1 + storm * 1.6)
+let sway = pan + sin(t * 0.09) * 26
+let red = max(energy - 0.45, 0) * 1.8
+let corona = clamp((energy - 0.45) * 1.9, 0, 1)
+let vy = tilt - 170
+let zenith = vec2(-sway * 0.08, tilt * 2.6 - 483)
+let reach = 267 * (0.72 + energy * 0.55) * (1 + storm * 0.35)
+
+func band(from, to, x) { return clamp((x - from) / (to - from), 0, 1) }
+
+func stop(r, g, b, a, df) {
+    let k = df * 0.55
+    return rgba(mix(r, 0.43, k), mix(g, 0.59, k), mix(b, 0.82, k), a * (1 - df * 0.3))
+}
+
+func ramp(f, df) {
+    let pink = stop(1, (75 - 30 * red) / 255, 0.61, 0.15 + energy * 0.6, df)
+    let green = stop(0.24, 1, 0.65, 0.95, df)
+    let teal = stop(0.08, 0.88, 0.76, 0.55, df)
+    let violet = stop(min((138 + 100 * red) / 255, 1), (92 - 50 * red) / 255, 1, 0.32, df)
+    let top = stop((180 + 70 * red) / 255, 0.24, (255 - 150 * red) / 255, 0, df)
+    let low = mix(mix(pink, green, band(0, 0.05, f)), teal, band(0.05, 0.26, f))
+    return mix(mix(low, violet, band(0.26, 0.58, f)), top, band(0.58, 1, f))
+}
+
+func curtain(p, depth, seed, ph, alpha, hm, df, edge, bloom) {
+    let s = depth * (1 + 0.22 * sin(p.x * 0.004 * folds + t * 0.42 + ph))
+    let base = vy + 147 * s
+    let ripple = 0.78 + 0.45 * sin(p.x * 0.009 / depth + t * 1.15 + seed) * sin(p.x * 0.0037 / depth - t * 0.7)
+    let tall = reach * s * hm * ripple * (1 + corona * 0.35 * s)
+    let lean = min(0.85, (0.1 + corona * 0.6) * pow(s, 1.2)) * (zenith.x - p.x) / (base - zenith.y)
+    let rx = p.x - (base - p.y) * lean
+    let wave = 0.5 + 0.5 * sin(rx * 0.06 / depth + t * 2.6 + seed * 3)
+    let fine = 0.75 + 0.25 * sin(rx * 0.55 / depth + seed)
+    let sweep = 0.6 + 0.4 * sin(rx * 0.005 / depth - t * 0.9 + seed)
+    let common = fine * sweep * s * sqrt(s) * alpha * (0.8 + energy * 0.5)
+    let f = (base - p.y) / tall
+    let inside = clamp(f * 60, 0, 1)
+    let rays = ramp(f, df) * ((0.22 + 0.78 * wave * wave * wave) * common * inside)
+    let halo = ramp(f / 1.04, df) * ((0.22 + 0.78 * wave) * common * bloom * inside)
+    let lit = pow(s, 1.3) * alpha
+    let line = 1 - smoothstep(0, 1 + 1.4 * s, abs(p.y - base))
+    let under = 1 - smoothstep(0, 1 + 1.4 * s, abs(p.y - base - 2.5 * s))
+    return rays + halo + edge * (0.85 * lit * line) + #ff5aa0 * (bloom * 3.5 * (0.15 + energy * 0.5) * lit * under)
+}
+
+func arc_light(p) {
+    let u = (p.x + 340) / 680
+    let y = vy + 47 - sin(clamp(u, 0, 1) * 3.14159) * 11 + sin(t * 0.5 + u * 24) * 2
+    let f = (y - p.y) / 23
+    return ramp(f, 1) * (0.1 * (0.6 + energy * 0.6) * (0.7 + 0.3 * sin(u * 52 + t * 0.8)) * clamp(f * 60, 0, 1))
+}
+
+func star_layer(p, shift, spacing, seed, size) {
+    let q = p + vec2(shift, 0)
+    let cell = vec2(floor(q.x / spacing), floor(q.y / spacing))
+    let h = hash(cell + vec2(seed, 0))
+    let centre = (cell + vec2(0.5, 0.5)) * spacing
+    let twinkle = 0.55 + 0.45 * sin(t * (1 + fract(h * 131) * 3) + h * 700)
+    let bright = (0.35 + 0.6 * fract(h * 53)) * twinkle
+    return smoothstep(0.985, 0.99, h) * bright * (1 - smoothstep(size * 0.4, size, length(q - centre)))
+}
+
+func sky_at(p) {
+    let f = band(-230, horizon, p.y)
+    let sky = mix(mix(#03040c, #081226, band(0, 0.55, f)), #0b1a33, band(0.55, 1, f))
+    let stars = (star_layer(p, sway * 0.04, 7, 0, 1.3) + star_layer(p, sway * 0.13, 7, 50, 0.9)) * band(115, 95, p.y)
+    let crown = #46ffc3 * (0.07 * corona * clamp(1 - length(p - vec2(zenith.x, -230)) / 253, 0, 1))
+    return sky + #ffffff * stars + crown
+}
+
+func fbm(x) {
+    let a = noise(vec2(x, 0)) * 0.55 + noise(vec2(x * 2.13, 0)) * 0.275
+    return a + noise(vec2(x * 4.54, 0)) * 0.1375 + noise(vec2(x * 9.66, 0)) * 0.069
+}
+
+func ridge(x, k, seed, rise, lift, drift) {
+    return horizon - lift - fbm((x + 340 + sway * drift) * k + seed) * rise
+}
+
+func land(p, behind, k, seed, rise, lift, drift, col) {
+    let d = (ridge(p.x, k, seed, rise, lift, drift) - p.y) * 0.4
+    return mix(behind, col, clamp(0.5 - d / PX, 0, 1))
+}
+
+func scene(p) {
+    let aurora = curtain(p, 0.249, 133, 1.4, 0.2, 0.68, 1, #00000000, 0) +
+        curtain(p, 0.319, 83, 5.1, 0.36, 0.85, 0.67, #6fc4c8 * 0.44, 0) +
+        curtain(p, 0.43, 47, 2.7, 0.6, 0.95, 0.33, #7be8d0 * 0.72, 0) +
+        curtain(p, 0.632, 11, 0, 1, 1, 0, #8dffd0, 0.28)
+    let light = sky_at(p) + arc_light(p) + aurora
+    let hazy = mix(light, #1e3456, 0.32 * band(horizon - 90, horizon, p.y))
+    let far = land(p, hazy, 0.006, 31, 56, 60, 0.08, #20304c)
+    let middle = land(p, far, 0.009, 67, 64, 40, 0.18, #121d34)
+    let near = land(p, middle, 0.013, 93, 72, 17, 0.32, #080e1c)
+    let crest = 1 - smoothstep(0, 1.5, abs(p.y - ridge(p.x, 0.013, 93, 72, 17, 0.32) + 1))
+    return near + #5affbe * ((0.05 + energy * 0.08) * crest)
+}
+
+let below = clamp((POS.y - horizon) / PX + 0.5, 0, 1)
+let ripple = sin(t * 2.1 + floor((POS.y - horizon) / 6) * 0.85) * 2.2
+let seen = scene(mix(POS, vec2(POS.x + ripple, 2 * horizon - POS.y), below))
+let sheen = 1 - smoothstep(0, 1.5, abs(POS.y - horizon - 0.75))
+
+draw mix(seen, mix(#040a1a, seen, 0.24), below) + #8cdcff * (0.07 * sheen)

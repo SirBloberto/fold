@@ -3,7 +3,7 @@ mod range;
 mod record;
 mod scalar;
 
-pub use op::{Op, clamp, to_srgb};
+pub use op::Op;
 pub use range::Range;
 pub use scalar::Scalar;
 

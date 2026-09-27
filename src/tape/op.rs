@@ -59,7 +59,7 @@ impl Op {
     }
 }
 
-pub fn clamp(x: f32, lo: f32, hi: f32) -> f32 {
+fn clamp(x: f32, lo: f32, hi: f32) -> f32 {
     if x < lo {
         lo
     } else if x > hi {
@@ -73,7 +73,7 @@ fn flag(yes: bool) -> f32 {
     if yes { 1.0 } else { 0.0 }
 }
 
-pub fn to_linear(c: f32) -> f32 {
+fn to_linear(c: f32) -> f32 {
     if c <= 0.04045 {
         c / 12.92
     } else {
@@ -81,7 +81,7 @@ pub fn to_linear(c: f32) -> f32 {
     }
 }
 
-pub fn to_srgb(light: f32) -> f32 {
+fn to_srgb(light: f32) -> f32 {
     if light <= 0.003_130_8 {
         light * 12.92
     } else {

@@ -10,6 +10,7 @@ For people implementing Fold. The language itself is defined in [SPEC.md](SPEC.m
 - The host chooses the output size. Canvas units are scaled uniformly to fit, and `PX` is the size of one output pixel in units *(open: letterbox or crop when the aspect ratio differs)*.
 - Each pixel is sampled at its centre.
 - Colour literals are converted from sRGB to linear light when evaluated. All colour maths and compositing happen in premultiplied linear light, and the final canvas is converted back to sRGB.
+- Each channel of the final canvas becomes an 8-bit sRGB value by counting how many of 255 thresholds it reaches. Threshold *k* is the linear-light value of sRGB (*k* − ½) / 255, rounded to the nearest 32-bit float. NaN and negative values give 0; values of 1 or more give 255.
 - A colour containing NaN is drawn as transparent.
 
 ### 2.1 Bounds

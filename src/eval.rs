@@ -339,6 +339,20 @@ mod tests {
             .map(str::trim_start)
     }
 
+    fn examples() -> Vec<String> {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/examples");
+        let mut paths: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "fld"))
+            .collect();
+        paths.sort();
+        paths
+            .iter()
+            .map(|path| std::fs::read_to_string(path).unwrap())
+            .collect()
+    }
+
     fn num(src: &str) -> Result<f32, String> {
         let (setup, expr) = src.rsplit_once('\n').unwrap_or(("", src));
         let program = load(&file(&format!("{setup}\nlet result = {expr}")))?;
@@ -477,6 +491,14 @@ mod tests {
                 "let moved = shape(pt => dist(circle(10), pt - vec2(100, 0)))\ndist(moved, vec2(100, 0))",
                 -10.0,
             ),
+            (
+                "dist(circle(5) |> at(50, 0) |> around(6), vec2(50, 0))",
+                -5.0,
+            ),
+            (
+                "dist(circle(5) |> at(50, 0) |> around(6), vec2(25, 43.30127))",
+                -5.0,
+            ),
             ("anchor(rect(20, 10), vec2(1, 1)).x", 10.0),
             ("anchor(rect(20, 10), vec2(0, -1)).y", -5.0),
             ("anchor(FRAME, TOP_RIGHT).x", 128.0),
@@ -558,6 +580,8 @@ mod tests {
             "input accent = #3366ff\ndraw accent",
             "let Sun = 1",
             "func glow(sh, col, amt) { return col }",
+            "func f(x) { return x }\nfunc g(x) { return x }",
+            "let f = x => x\nlet g = x => x",
         ] {
             canvas(body).expect(body);
         }
@@ -611,6 +635,22 @@ mod tests {
                 "func f(x) { let x = 1\nreturn x }",
                 "`x` is already defined",
             ),
+            (
+                "let height = 1\nfunc f(height) { return height }",
+                "`height` is already defined",
+            ),
+            (
+                "let a = 1\nfunc f(x) { let a = x\nreturn a }",
+                "`a` is already defined",
+            ),
+            (
+                "let k = 2\nlet double = k => k * 2",
+                "`k` is already defined",
+            ),
+            (
+                "func f(pt) { return shape(pt => 1) }",
+                "`pt` is already defined",
+            ),
         ] {
             let error = canvas(body).expect_err(body);
             assert!(error.contains(message), "{body}: {error}");
@@ -637,42 +677,30 @@ mod tests {
         assert_ne!(byte_colour(corner), 0xffaa00);
     }
 
-    #[test]
-    fn cookbook_recipes_render() {
-        for recipe in recipes() {
-            for pos in [
-                maths::vec2(0.0, 0.0),
-                maths::vec2(40.0, -30.0),
-                maths::vec2(-120.0, 110.0),
-            ] {
-                if let Err(e) = canvas_at(&file(recipe), pos) {
-                    panic!("{e}\n{recipe}");
-                }
-            }
-        }
-    }
-
     fn tape_of(src: &str) -> Result<Tape, String> {
         compile(&load(src)?, 1.0)
     }
 
     fn same_on_tape(src: &str) {
-        let program = load(src).unwrap();
-        let tape = compile(&program, 1.0).unwrap();
-        let size = maths::vec2(program.header.width as f32, program.header.height as f32);
+        let program = load(src).expect(src);
+        let tape = compile(&program, 1.0).expect(src);
+        let (width, height) = (program.header.width as f32, program.header.height as f32);
+        let size = maths::vec2(width, height);
         let prelude = Prelude::load(size).unwrap();
         let mut slots = tape.slots();
+        let spacing = (program.header.width.max(program.header.height) / 24).max(1) as usize;
         for time in [0.0, 1.3] {
-            for y in (-128..128).step_by(9) {
-                for x in (-128..128).step_by(9) {
-                    let (x, y) = (x as f32 + 0.5, y as f32 + 0.5);
+            for row in (0..program.header.height).step_by(spacing) {
+                for col in (0..program.header.width).step_by(spacing) {
+                    let x = col as f32 + 0.5 - width / 2.0;
+                    let y = row as f32 + 0.5 - height / 2.0;
                     let pixel = Pixel {
                         pos: maths::vec2(x, y),
                         time: Scalar::from(time),
                         px: Scalar::from(1.0),
                         size,
                     };
-                    let want = run(&program, &prelude, pixel).unwrap().channels();
+                    let want = run(&program, &prelude, pixel).expect(src).channels();
                     let got = tape.run(&mut slots, &[x, y, time]);
                     for (want, got) in want.iter().zip(got) {
                         let want = want.known().unwrap();
@@ -685,7 +713,9 @@ mod tests {
 
     #[test]
     fn tape_matches_the_reference_bit_for_bit() {
-        same_on_tape(SUN);
+        for example in examples() {
+            same_on_tape(&example);
+        }
         for recipe in recipes() {
             same_on_tape(&file(recipe));
         }

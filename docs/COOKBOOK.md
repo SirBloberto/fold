@@ -87,8 +87,9 @@ draw rect(120, 12) |> spin(45 * DEG) |> fill(#222222)
 
 ### Mandala
 ```
-let petal = circle(12) |> scale(2) |> at(50, 0)
-draw petal |> mirror |> around(8) |> spin(TIME * 0.2) |> fill(#ff66aa)
+let petal = segment(vec2(30, 0), vec2(85, 0)) |> grow(7)
+let pair = union(petal |> spin(14 * DEG), petal |> spin(-14 * DEG))
+draw pair |> around(8) |> spin(TIME * 0.2) |> fill(#ff66aa)
 ```
 
 ## Inputs
