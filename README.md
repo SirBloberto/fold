@@ -40,7 +40,7 @@ Good for animated icons and loaders, UI that reacts to hover or progress, data-d
 
 ## Status
 
-**Early development.** The engine renders files, reloads them live and runs on all cores. It does not yet implement the language in SPEC.md: files set their colour with `OUT = <colour>`, shapes are plain distance numbers, and there is no prelude. [`examples/sun.fld`](examples/sun.fld) is written for the engine as it is today.
+**Early development.** The engine runs the language in SPEC.md, reloads files live and renders on all cores. It differs from the spec in three ways: type errors are reported when a pixel reaches them, not when the file loads; a custom shape's bounding box is the whole canvas, so `anchor` and `pin` are exact only for built-in shapes; and the viewer shows every input at its default value. Rendering is unoptimised. [`examples/sun.fld`](examples/sun.fld) is a small example.
 
 ## Running
 

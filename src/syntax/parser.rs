@@ -5,34 +5,49 @@ use super::token::{Pos, Spanned, Token};
 const MAX_DEPTH: usize = 256;
 
 pub fn parse(header: Header, tokens: Vec<Spanned>) -> Result<Program, String> {
-    let body = parse_body(tokens)?;
+    let body = Parser::new(tokens, false).statements(Token::Eof, Vec::new())?;
     Ok(Program { header, body })
 }
 
-pub fn parse_body(tokens: Vec<Spanned>) -> Result<Vec<Stmt>, String> {
-    let mut parser = Parser {
-        tokens,
-        index: 0,
-        depth: 0,
-    };
-    parser.statements(Token::Eof)
+pub fn parse_prelude(tokens: Vec<Spanned>) -> Result<Vec<Stmt>, String> {
+    Parser::new(tokens, true).statements(Token::Eof, Vec::new())
 }
 
 struct Parser {
     tokens: Vec<Spanned>,
     index: usize,
     depth: usize,
+    capitals: bool,
 }
 
 impl Parser {
-    fn statements(&mut self, end: Token) -> Result<Vec<Stmt>, String> {
+    fn new(tokens: Vec<Spanned>, capitals: bool) -> Parser {
+        Parser {
+            tokens,
+            index: 0,
+            depth: 0,
+            capitals,
+        }
+    }
+
+    fn statements(&mut self, end: Token, mut defined: Vec<String>) -> Result<Vec<Stmt>, String> {
         let mut body = Vec::new();
         loop {
             self.skip_newlines();
             if *self.peek() == end || *self.peek() == Token::Eof {
                 return Ok(body);
             }
-            body.push(self.statement()?);
+            let stmt = self.statement()?;
+            if let StmtKind::Input { name, .. }
+            | StmtKind::Let { name, .. }
+            | StmtKind::Func { name, .. } = &stmt.kind
+            {
+                if defined.contains(name) {
+                    return Err(error_at(&format!("`{name}` is already defined"), stmt.pos));
+                }
+                defined.push(name.clone());
+            }
+            body.push(stmt);
         }
     }
 
@@ -44,7 +59,6 @@ impl Parser {
             Token::Func => self.func()?,
             Token::Return => self.return_statement()?,
             Token::Draw => self.draw()?,
-            Token::Name(_) => self.assign()?,
             _ => return Err(self.error("expected a statement")),
         };
         self.end_of_statement()?;
@@ -53,7 +67,7 @@ impl Parser {
 
     fn input(&mut self) -> Result<StmtKind, String> {
         self.bump();
-        let name = self.name()?;
+        let name = self.new_name()?;
         let range = if *self.peek() == Token::Colon {
             self.bump();
             let min = self.expr()?;
@@ -74,27 +88,25 @@ impl Parser {
 
     fn let_statement(&mut self) -> Result<StmtKind, String> {
         self.bump();
-        let name = self.name()?;
+        let name = self.new_name()?;
         self.expect(Token::Equals, "`=` after the name")?;
         let value = self.expr()?;
         Ok(StmtKind::Let { name, value })
     }
 
-    fn assign(&mut self) -> Result<StmtKind, String> {
-        let name = self.name()?;
-        self.expect(Token::Equals, "`=` after the name")?;
-        let value = self.expr()?;
-        Ok(StmtKind::Assign { name, value })
-    }
-
     fn func(&mut self) -> Result<StmtKind, String> {
         self.enter()?;
         self.bump();
-        let name = self.name()?;
+        let name = self.new_name()?;
         self.expect(Token::LParen, "`(` after the function name")?;
-        let params = self.list(Self::name)?;
+        let params = self.list(Self::new_name)?;
+        for (i, param) in params.iter().enumerate() {
+            if params[..i].contains(param) {
+                return Err(self.error(&format!("`{param}` is already a parameter")));
+            }
+        }
         self.expect(Token::LBrace, "`{` to start the function body")?;
-        let body = self.statements(Token::RBrace)?;
+        let body = self.statements(Token::RBrace, params.clone())?;
         self.expect(Token::RBrace, "`}` to end the function body")?;
         self.leave();
         Ok(StmtKind::Func { name, params, body })
@@ -134,7 +146,7 @@ impl Parser {
 
     fn lambda(&mut self) -> Result<Expr, String> {
         let pos = self.pos();
-        let param = self.name()?;
+        let param = self.new_name()?;
         self.bump();
         self.skip_newlines();
         let body = self.expr()?;
@@ -324,9 +336,21 @@ impl Parser {
         }
     }
 
-    fn error(&self, message: &str) -> String {
+    fn new_name(&mut self) -> Result<String, String> {
         let pos = self.pos();
-        format!("{message} at line {}, column {}", pos.line, pos.col)
+        let name = self.name()?;
+        let capital = name.chars().any(|c| c.is_ascii_uppercase())
+            && !name.chars().any(|c| c.is_ascii_lowercase());
+        if capital && !self.capitals {
+            let message =
+                format!("`{name}` is all capitals, which only the engine and prelude use");
+            return Err(error_at(&message, pos));
+        }
+        Ok(name)
+    }
+
+    fn error(&self, message: &str) -> String {
+        error_at(message, self.pos())
     }
 
     fn bump(&mut self) {
@@ -347,6 +371,10 @@ impl Parser {
     fn pos(&self) -> Pos {
         self.tokens[self.index].pos
     }
+}
+
+fn error_at(message: &str, pos: Pos) -> String {
+    format!("{message} at line {}, column {}", pos.line, pos.col)
 }
 
 fn binary_op(token: &Token) -> Option<(BinOp, u8)> {

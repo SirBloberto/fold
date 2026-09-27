@@ -26,9 +26,9 @@ pub fn parse_header(src: &str) -> Result<(Header, &str), String> {
             "bad version `{version}`, expected something like `v1`"
         ))?;
 
-    if version > SUPPORTED_VERSION {
+    if version != SUPPORTED_VERSION {
         return Err(format!(
-            "this file needs Fold v{version}; this engine supports up to v{SUPPORTED_VERSION}"
+            "this file is Fold v{version}; this engine supports v{SUPPORTED_VERSION}"
         ));
     }
 

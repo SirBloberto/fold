@@ -3,5 +3,8 @@
 input progress: 0..1 = 0
 
 let sun = circle(80 + progress * 20)
-let w = 20 + sin(TIME * 2) * 6
-OUT = fill(sun, #ffaa00) + glow(sun, #ffaa00, w)
+let pulse = 20 + sin(TIME * 2) * 6
+
+draw FRAME |> fill(#101820)
+draw sun |> glow(#ffaa00, pulse)
+draw sun |> fill(#ffaa00)

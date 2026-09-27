@@ -105,6 +105,13 @@ pub struct Rgba {
 }
 
 impl Rgba {
+    pub const CLEAR: Rgba = Rgba {
+        r: 0.0,
+        g: 0.0,
+        b: 0.0,
+        a: 0.0,
+    };
+
     pub fn from_srgb(r: f32, g: f32, b: f32, a: f32) -> Rgba {
         Rgba {
             r: to_linear(r) * a,
@@ -129,6 +136,23 @@ impl Rgba {
             to_srgb(self.b / self.a),
             self.a,
         ]
+    }
+
+    pub fn valid(self) -> Rgba {
+        if [self.r, self.g, self.b, self.a].iter().any(|c| c.is_nan()) {
+            return Rgba::CLEAR;
+        }
+        let a = self.a.clamp(0.0, 1.0);
+        Rgba {
+            r: self.r.clamp(0.0, a),
+            g: self.g.clamp(0.0, a),
+            b: self.b.clamp(0.0, a),
+            a,
+        }
+    }
+
+    pub fn over(self, below: Rgba) -> Rgba {
+        self + below * (1.0 - self.a)
     }
 
     pub fn to_u32(self) -> u32 {

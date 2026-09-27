@@ -24,10 +24,6 @@ pub enum StmtKind {
         name: String,
         value: Expr,
     },
-    Assign {
-        name: String,
-        value: Expr,
-    },
     Func {
         name: String,
         params: Vec<String>,

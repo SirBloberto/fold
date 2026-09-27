@@ -92,13 +92,9 @@ fn render_rows(
         let x = (i % width) as f32 + 0.5;
         let y = (first_row + i / width) as f32 + 0.5;
         let pixel = eval::Pixel {
-            p: Vec2 {
+            pos: Vec2 {
                 x: x - size.x / 2.0,
                 y: y - size.y / 2.0,
-            },
-            uv: Vec2 {
-                x: x / size.x,
-                y: y / size.y,
             },
             time,
             px: 1.0,

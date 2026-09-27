@@ -23,6 +23,7 @@ Every shape carries a bounding box, which the engine uses for culling and which 
 - All arithmetic is IEEE-754 binary32, with no fused or reordered operations ("fast-math").
 - Native maths functions use the engine's own specified implementations, not the platform's.
 - `hash` uses exact integer arithmetic on the bits of its input, never floating-point tricks like `fract(sin(x) * 43758)`, which magnify tiny hardware differences into completely different values. Every back end, including the GPU, must return **bit-identical** results from `hash`.
+- `hash(pt)` is defined as: add `0.0` to each component (so `-0.0` becomes `0.0`), take the IEEE-754 bits `x` and `y` as unsigned 32-bit integers, compute `s(x ^ s(y ^ 0x9e3779b9))`, and return the top 24 bits divided by 2²⁴. `s` is the lowbias32 mixer: `h ^= h >> 16; h *= 0x7feb352d; h ^= h >> 15; h *= 0x846ca68b; h ^= h >> 16`, with multiplication wrapping modulo 2³².
 - **The CPU reference engine is bit-exact**: the same file, inputs, time and size give identical pixels everywhere.
 - **Other back ends** (SIMD, GPU, WebAssembly) must match the reference to within **1/255 per channel**.
 

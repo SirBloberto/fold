@@ -5,12 +5,12 @@ use crate::pixel::{self, Rgba, Vec2};
 use crate::shape::{self, Bounds};
 use crate::syntax::ast::{BinOp, Expr, ExprKind, Program, Stmt, StmtKind};
 use crate::syntax::lexer::lex;
-use crate::syntax::parser::parse_body;
+use crate::syntax::parser::parse_prelude;
 use crate::syntax::token::Pos;
 
 static PRELUDE: LazyLock<Vec<Stmt>> = LazyLock::new(|| {
     let tokens = lex(include_str!("prelude.fld"), 1).expect("the prelude lexes");
-    parse_body(tokens).expect("the prelude parses")
+    parse_prelude(tokens).expect("the prelude parses")
 });
 
 #[derive(Clone)]
@@ -55,12 +55,20 @@ impl Value<'_> {
             Value::Shape(_) => "shape",
         }
     }
+
+    fn a_type(&self) -> String {
+        let article = if matches!(self, Value::Rgba(_)) {
+            "an"
+        } else {
+            "a"
+        };
+        format!("{article} {}", self.type_name())
+    }
 }
 
 #[derive(Clone, Copy)]
 pub struct Pixel {
-    pub p: Vec2,
-    pub uv: Vec2,
+    pub pos: Vec2,
     pub time: f32,
     pub px: f32,
     pub size: Vec2,
@@ -75,15 +83,14 @@ impl Prelude {
         let origin = pixel::vec2(0.0, 0.0);
         let mut env = Env {
             pixel: Pixel {
-                p: origin,
-                uv: origin,
+                pos: origin,
                 time: 0.0,
                 px: 1.0,
                 size,
             },
             globals: &[],
             vars: Vec::new(),
-            out: None,
+            canvas: Rgba::CLEAR,
         };
         for stmt in PRELUDE.iter() {
             env.statement(stmt)
@@ -98,40 +105,36 @@ pub fn run(program: &Program, prelude: &Prelude, pixel: Pixel) -> Result<Rgba, S
         pixel,
         globals: &prelude.vars,
         vars: Vec::new(),
-        out: None,
+        canvas: Rgba::CLEAR,
     };
     for stmt in &program.body {
         env.statement(stmt)?;
     }
-    env.out.ok_or("this file never sets OUT".into())
+    Ok(env.canvas)
 }
 
 struct Env<'a> {
     pixel: Pixel,
     globals: &'a [(&'a str, Value<'a>)],
     vars: Vec<(&'a str, Value<'a>)>,
-    out: Option<Rgba>,
+    canvas: Rgba,
 }
 
 impl<'a> Env<'a> {
     fn statement(&mut self, stmt: &'a Stmt) -> Result<(), String> {
         match &stmt.kind {
-            StmtKind::Input { name, default, .. } => {
+            StmtKind::Input {
+                name,
+                range,
+                default,
+            } => {
                 let value = self.expr(default)?;
+                self.check_input(range, &value, stmt.pos)?;
                 self.vars.push((name, value));
             }
             StmtKind::Let { name, value } => {
                 let value = self.expr(value)?;
                 self.vars.push((name, value));
-            }
-            StmtKind::Assign { name, value } if name == "OUT" => {
-                let Value::Rgba(col) = self.expr(value)? else {
-                    return Err(at("OUT must be set to a colour", stmt.pos));
-                };
-                self.out = Some(col);
-            }
-            StmtKind::Assign { name, .. } => {
-                return Err(at(&format!("`{name}` can't be assigned"), stmt.pos));
             }
             StmtKind::Func { name, params, body } => {
                 let closure = Closure {
@@ -144,17 +147,47 @@ impl<'a> Env<'a> {
             StmtKind::Return(_) => {
                 return Err(at("`return` belongs inside a `func`", stmt.pos));
             }
-            StmtKind::Draw(_) => {
-                return Err(at("`draw` isn't supported yet", stmt.pos));
-            }
+            StmtKind::Draw(value) => match self.expr(value)? {
+                Value::Rgba(col) => self.canvas = col.valid().over(self.canvas),
+                other => {
+                    let message = format!("`draw` needs an rgba, not {}", other.a_type());
+                    return Err(at(&message, stmt.pos));
+                }
+            },
         }
         Ok(())
     }
 
+    fn check_input(
+        &self,
+        range: &'a Option<(Expr, Expr)>,
+        default: &Value<'a>,
+        pos: Pos,
+    ) -> Result<(), String> {
+        let message = match (range, default) {
+            (None, Value::Rgba(_)) => return Ok(()),
+            (Some((min, max)), Value::Num(n)) => match (self.expr(min)?, self.expr(max)?) {
+                (Value::Num(lo), Value::Num(hi)) if lo <= *n && *n <= hi => return Ok(()),
+                (Value::Num(lo), Value::Num(hi)) => {
+                    format!("the default {n} is outside {lo}..{hi}")
+                }
+                _ => "an input's range must be two nums".into(),
+            },
+            (Some(_), other) => format!(
+                "an input with a range must default to a num, not {}",
+                other.a_type()
+            ),
+            (None, other) => format!(
+                "an input without a range must default to an rgba, not {}",
+                other.a_type()
+            ),
+        };
+        Err(at(&message, pos))
+    }
+
     fn lookup(&self, name: &str) -> Option<Value<'a>> {
         let builtin = match name {
-            "POS" | "P" => Value::Vec2(self.pixel.p),
-            "UV" => Value::Vec2(self.pixel.uv),
+            "POS" => Value::Vec2(self.pixel.pos),
             "TIME" => Value::Num(self.pixel.time),
             "PX" => Value::Num(self.pixel.px),
             "SIZE" => Value::Vec2(self.pixel.size),
@@ -183,7 +216,7 @@ impl<'a> Env<'a> {
                 Value::Num(n) => Value::Num(-n),
                 Value::Vec2(v) => Value::Vec2(Vec2 { x: -v.x, y: -v.y }),
                 other => {
-                    let message = format!("can't negate a {}", other.type_name());
+                    let message = format!("can't negate {}", other.a_type());
                     return Err(at(&message, expr.pos));
                 }
             },
@@ -198,7 +231,7 @@ impl<'a> Env<'a> {
                 match self.lookup(name) {
                     Some(Value::Func(closure)) => self.apply(&closure, args, expr.pos)?,
                     Some(other) => {
-                        let message = format!("`{name}` is a {}, not a func", other.type_name());
+                        let message = format!("`{name}` is {}, not a func", other.a_type());
                         return Err(at(&message, expr.pos));
                     }
                     None => self.native(name, &args, expr.pos)?,
@@ -209,7 +242,7 @@ impl<'a> Env<'a> {
                 match swizzle(&value, field) {
                     Some(value) => value,
                     None => {
-                        let message = format!("a {} has no field `{field}`", value.type_name());
+                        let message = format!("{} has no field `{field}`", value.a_type());
                         return Err(at(&message, expr.pos));
                     }
                 }
@@ -242,7 +275,7 @@ impl<'a> Env<'a> {
             pixel: self.pixel,
             globals: self.globals,
             vars: closure.captured.clone(),
-            out: None,
+            canvas: Rgba::CLEAR,
         };
         env.vars.extend(closure.params.iter().copied().zip(args));
 
@@ -329,8 +362,8 @@ impl<'a> Env<'a> {
                 Value::Num(d) => d,
                 other => {
                     let message = format!(
-                        "a shape's function must return a num, not a {}",
-                        other.type_name()
+                        "a shape's function must return a num, not {}",
+                        other.a_type()
                     );
                     return Err(at(&message, pos));
                 }
@@ -443,15 +476,14 @@ mod tests {
         let prelude = Prelude::load(size)?;
         let mut env = Env {
             pixel: Pixel {
-                p: Vec2 { x: 0.0, y: 0.0 },
-                uv: Vec2 { x: 0.0, y: 0.0 },
+                pos: Vec2 { x: 0.0, y: 0.0 },
                 time: 0.0,
                 px: 1.0,
                 size,
             },
             globals: &prelude.vars,
             vars: Vec::new(),
-            out: None,
+            canvas: Rgba::CLEAR,
         };
         for stmt in &program.body {
             env.statement(stmt)?;
@@ -730,7 +762,7 @@ mod tests {
         close(&format!("{src}let result = clamp(0, 0, 1)"), 99.0);
     }
 
-        #[test]
+    #[test]
     fn colours_read_back_as_written() {
         close("let result = #ff8800.r", 1.0);
         close("let result = #ff8800.g", 136.0 / 255.0);
@@ -766,7 +798,7 @@ mod tests {
         close("let result = #ff8800.bgr.r", 0.0);
         close("let result = #ff880066.bgra.a", 0.4);
         let error = num("let result = #ff8800.rg").unwrap_err();
-        assert!(error.contains("a rgba has no field `rg`"), "{error}");
+        assert!(error.contains("an rgba has no field `rg`"), "{error}");
     }
 
     #[test]
@@ -774,5 +806,175 @@ mod tests {
         close("let result = shade(#808080, 1).r", 1.0);
         close("let result = shade(#808080, -1).r", 0.0);
         close("let result = shade(#80808080, 1).a", 128.0 / 255.0);
+    }
+
+    fn canvas_at(src: &str, pos: Vec2) -> Result<Rgba, String> {
+        let (header, rest) = parse_header(src)?;
+        let program = parse(header, lex(rest, 2)?)?;
+        let size = Vec2 {
+            x: program.header.width as f32,
+            y: program.header.height as f32,
+        };
+        let prelude = Prelude::load(size)?;
+        let pixel = Pixel {
+            pos,
+            time: 0.0,
+            px: 1.0,
+            size,
+        };
+        run(&program, &prelude, pixel)
+    }
+
+    fn canvas(body: &str) -> Result<Rgba, String> {
+        canvas_at(
+            &format!("~fold v1 256x256\n{body}"),
+            Vec2 { x: 0.0, y: 0.0 },
+        )
+    }
+
+    #[test]
+    fn canvas_starts_transparent() {
+        assert_eq!(canvas("let x = 1"), Ok(Rgba::CLEAR));
+    }
+
+    #[test]
+    fn opaque_draw_covers_what_is_below() {
+        let top = canvas("draw #0000ff\ndraw #ff0000").unwrap();
+        assert_eq!(top, Rgba::hex(0xff0000ff));
+    }
+
+    #[test]
+    fn transparent_draw_blends_in_linear_light() {
+        let mixed = canvas("draw #0000ff\ndraw #ff0000 * 0.5").unwrap();
+        assert_eq!(mixed.a, 1.0);
+        assert!((mixed.r - 0.5).abs() < 1e-6, "{mixed:?}");
+        assert!((mixed.b - 0.5).abs() < 1e-6, "{mixed:?}");
+    }
+
+    #[test]
+    fn draw_makes_colours_valid() {
+        let bright = canvas("draw #ffffff * 3").unwrap();
+        assert_eq!(bright, Rgba::hex(0xffffffff));
+        let summed = canvas("draw #ff0000 * 0.5 + #00ff00 * 0.5 + #0000ff").unwrap();
+        assert_eq!(summed.a, 1.0);
+        assert!(summed.r <= summed.a && summed.b <= summed.a);
+    }
+
+    #[test]
+    fn draw_needs_a_colour() {
+        let error = canvas("draw circle(10)").unwrap_err();
+        assert!(
+            error.contains("`draw` needs an rgba, not a shape"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn old_names_are_gone() {
+        assert!(
+            canvas("OUT = #ffffff")
+                .unwrap_err()
+                .contains("expected a statement")
+        );
+        assert!(
+            num("let result = P.x")
+                .unwrap_err()
+                .contains("unknown name `P`")
+        );
+        assert!(
+            num("let result = UV.x")
+                .unwrap_err()
+                .contains("unknown name `UV`")
+        );
+    }
+
+    #[test]
+    fn sun_example_renders() {
+        let sun = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/examples/sun.fld"));
+        let centre = canvas_at(sun, Vec2 { x: 0.0, y: 0.0 }).unwrap();
+        assert_eq!(centre.to_u32(), 0xffaa00);
+        let corner = canvas_at(
+            sun,
+            Vec2 {
+                x: -250.0,
+                y: -250.0,
+            },
+        )
+        .unwrap();
+        assert_eq!(corner.a, 1.0);
+        assert_ne!(corner.to_u32(), 0xffaa00);
+    }
+
+    #[test]
+    fn cookbook_recipes_render() {
+        let book = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/COOKBOOK.md"));
+        let recipes = book.split("```").skip(1).step_by(2);
+        for recipe in recipes {
+            let src = format!("~fold v1 256x256\n{}", recipe.trim_start());
+            for pos in [
+                Vec2 { x: 0.0, y: 0.0 },
+                Vec2 { x: 40.0, y: -30.0 },
+                Vec2 {
+                    x: -120.0,
+                    y: 110.0,
+                },
+            ] {
+                if let Err(e) = canvas_at(&src, pos) {
+                    panic!("{e}\n{recipe}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn inputs_follow_the_spec() {
+        assert_eq!(num("input result: 0..10 = 4"), Ok(4.0));
+        assert!(canvas("input accent = #3366ff\ndraw accent").is_ok());
+        let error = canvas("input x: 0..1 = 2").unwrap_err();
+        assert!(error.contains("the default 2 is outside 0..1"), "{error}");
+        let error = canvas("input x = 5").unwrap_err();
+        assert!(
+            error.contains("without a range must default to an rgba, not a num"),
+            "{error}"
+        );
+        let error = canvas("input x: 0..1 = #ffffff").unwrap_err();
+        assert!(
+            error.contains("with a range must default to a num, not an rgba"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn nan_colours_draw_as_transparent() {
+        let red = canvas("draw #ff0000\ndraw #ffffff * (0 / 0)").unwrap();
+        assert_eq!(red, Rgba::hex(0xff0000ff));
+    }
+
+    #[test]
+    fn capital_names_belong_to_the_engine() {
+        let error = canvas("let TAU = 3").unwrap_err();
+        assert!(error.contains("`TAU` is all capitals"), "{error}");
+        let error = canvas("func f(POS) { return 1 }").unwrap_err();
+        assert!(error.contains("`POS` is all capitals"), "{error}");
+        assert!(canvas("let Sun = 1").is_ok());
+    }
+
+    #[test]
+    fn names_are_defined_once() {
+        let error = canvas("let a = 1\nlet a = 2").unwrap_err();
+        assert!(error.contains("`a` is already defined"), "{error}");
+        let error = canvas("func f(x, x) { return x }").unwrap_err();
+        assert!(error.contains("`x` is already a parameter"), "{error}");
+        let error = canvas("func f(x) { let x = 1\nreturn x }").unwrap_err();
+        assert!(error.contains("`x` is already defined"), "{error}");
+        assert!(canvas("func glow(sh, col, amt) { return col }").is_ok());
+    }
+
+    #[test]
+    fn other_versions_are_refused() {
+        let error = canvas_at("~fold v0 256x256\n", Vec2 { x: 0.0, y: 0.0 }).unwrap_err();
+        assert!(error.contains("this engine supports v1"), "{error}");
+        let error = canvas_at("~fold v2 256x256\n", Vec2 { x: 0.0, y: 0.0 }).unwrap_err();
+        assert!(error.contains("this file is Fold v2"), "{error}");
     }
 }
