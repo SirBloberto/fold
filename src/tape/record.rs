@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use super::optimise;
 use super::range::{self, Range};
 use super::{Op, Scalar, Step, Tape};
 
@@ -9,10 +10,12 @@ thread_local! {
 }
 
 struct Recorder {
-    constants: HashMap<u32, u32>,
+    constant_slots: HashMap<u32, u32>,
+    constants: Vec<(u32, f32)>,
     ranges: Vec<Range>,
     made_by: HashMap<u32, (Op, [Scalar; 3])>,
-    tape: Tape,
+    recorded: HashMap<(Op, [u32; 3]), u32>,
+    steps: Vec<Step>,
 }
 
 impl Recorder {
@@ -24,12 +27,12 @@ impl Recorder {
     fn register(&mut self, value: Scalar) -> u32 {
         match value {
             Scalar::Slot(slot) => slot,
-            Scalar::Known(n) => match self.constants.get(&n.to_bits()) {
+            Scalar::Known(n) => match self.constant_slots.get(&n.to_bits()) {
                 Some(&slot) => slot,
                 None => {
                     let slot = self.new_slot(Range::of(n));
-                    self.constants.insert(n.to_bits(), slot);
-                    self.tape.constants.push((slot, n));
+                    self.constant_slots.insert(n.to_bits(), slot);
+                    self.constants.push((slot, n));
                     slot
                 }
             },
@@ -55,9 +58,13 @@ impl Recorder {
             return Scalar::Known(n);
         }
         let registers = args.map(|arg| self.register(arg));
+        if let Some(&out) = self.recorded.get(&(op, registers)) {
+            return Scalar::Slot(out);
+        }
         let out = self.new_slot(range);
+        self.recorded.insert((op, registers), out);
         self.made_by.insert(out, (op, args));
-        self.tape.steps.push(Step {
+        self.steps.push(Step {
             op,
             args: registers,
             out,
@@ -128,21 +135,34 @@ pub fn trace(op: Op, args: [Scalar; 3]) -> Scalar {
 
 impl Tape {
     pub fn record(
-        inputs: &[Range],
+        per_pixel: &[Range],
+        per_frame: &[Range],
         body: impl FnOnce(&[Scalar]) -> Result<[Scalar; 4], String>,
     ) -> Result<Tape, String> {
-        RECORDING.set(Some(Recorder {
-            constants: HashMap::new(),
-            ranges: inputs.to_vec(),
-            made_by: HashMap::new(),
-            tape: Tape::default(),
-        }));
+        let inputs: Vec<Range> = per_pixel.iter().chain(per_frame).copied().collect();
         let placeholders: Vec<Scalar> = (0..inputs.len() as u32).map(Scalar::Slot).collect();
+        RECORDING.set(Some(Recorder {
+            constant_slots: HashMap::new(),
+            constants: Vec::new(),
+            ranges: inputs,
+            made_by: HashMap::new(),
+            recorded: HashMap::new(),
+            steps: Vec::new(),
+        }));
         let result = body(&placeholders);
         let mut recorder = RECORDING.take().expect("the recorder is still set");
         let outputs = result?.map(|out| recorder.register(out));
-        recorder.tape.outputs = outputs;
-        recorder.tape.slots = recorder.ranges.len() as u32;
-        Ok(recorder.tape)
+        let slots = recorder.ranges.len() as u32;
+        let pixel_inputs = per_pixel.len() as u32;
+        let needed = optimise::keep_needed(recorder.steps, outputs, slots);
+        let (frame, pixel) = optimise::split(needed, slots, pixel_inputs);
+        Ok(Tape {
+            slots,
+            pixel_inputs,
+            constants: recorder.constants,
+            frame,
+            pixel,
+            outputs,
+        })
     }
 }

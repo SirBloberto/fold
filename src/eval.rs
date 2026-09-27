@@ -58,12 +58,9 @@ pub fn compile(program: &Program, px: f32) -> Result<Tape, String> {
     let size = maths::vec2(width, height);
     let prelude = Prelude::load(size)?;
     let across = |length: f32| Range::between(px / 2.0 - length / 2.0, length / 2.0 - px / 2.0);
-    let inputs = [
-        across(width),
-        across(height),
-        Range::between(0.0, LONGEST_TIME),
-    ];
-    Tape::record(&inputs, |inputs| {
+    let per_pixel = [across(width), across(height)];
+    let per_frame = [Range::between(0.0, LONGEST_TIME)];
+    Tape::record(&per_pixel, &per_frame, |inputs| {
         let pixel = Pixel {
             pos: maths::vec2(inputs[0], inputs[1]),
             time: inputs[2],
@@ -317,7 +314,7 @@ mod tests {
     use super::*;
     use crate::syntax::header::parse_header;
     use crate::syntax::parser::parse;
-    use crate::tape::{Op, Step};
+    use crate::tape::Op;
 
     const SUN: &str = include_str!("../examples/sun.fld");
     const COOKBOOK: &str = include_str!("../docs/COOKBOOK.md");
@@ -690,6 +687,7 @@ mod tests {
         let mut slots = tape.slots();
         let spacing = (program.header.width.max(program.header.height) / 24).max(1) as usize;
         for time in [0.0, 1.3] {
+            tape.start_frame(&mut slots, &[time]);
             for row in (0..program.header.height).step_by(spacing) {
                 for col in (0..program.header.width).step_by(spacing) {
                     let x = col as f32 + 0.5 - width / 2.0;
@@ -701,7 +699,7 @@ mod tests {
                         size,
                     };
                     let want = run(&program, &prelude, pixel).expect(src).channels();
-                    let got = tape.run(&mut slots, &[x, y, time]);
+                    let got = tape.run(&mut slots, &[x, y]);
                     for (want, got) in want.iter().zip(got) {
                         let want = want.known().unwrap();
                         assert_eq!(want.to_bits(), got.to_bits(), "at ({x}, {y}): {src}");
@@ -742,28 +740,53 @@ mod tests {
         assert!(error.contains("can't use `+` on rgba and num"), "{error}");
     }
 
-    #[test]
-    fn constant_work_leaves_the_tape() {
-        let tape = tape_of(&file("let k = sin(1) * 20 + 3\ndraw #ffffff * k")).unwrap();
-        assert!(tape.steps.iter().all(|step| step.op != Op::Sin));
+    fn count(tape: &Tape, op: Op) -> usize {
+        let steps = tape.frame.iter().chain(&tape.pixel);
+        steps.filter(|step| step.op == op).count()
     }
 
     #[test]
-    fn a_solid_background_is_a_constant() {
+    fn constant_work_leaves_the_tape() {
+        let tape = tape_of(&file("let k = sin(1) * 20 + 3\ndraw #ffffff * k")).unwrap();
+        assert_eq!(count(&tape, Op::Sin), 0);
+    }
+
+    #[test]
+    fn a_solid_background_needs_no_steps() {
         let tape = tape_of(&file("draw FRAME |> fill(#101820)")).unwrap();
         let constant = |slot: &u32| tape.constants.iter().any(|(at, _)| at == slot);
         assert!(tape.outputs.iter().all(constant));
+        assert!(tape.frame.is_empty() && tape.pixel.is_empty());
+    }
+
+    #[test]
+    fn repeated_work_is_shared() {
+        let tape = tape_of(&file("draw #ffffff * (sqrt(POS.x) + sqrt(POS.x))")).unwrap();
+        assert_eq!(count(&tape, Op::Sqrt), 1);
+    }
+
+    #[test]
+    fn time_only_work_runs_once_per_frame() {
+        let tape = tape_of(&file("draw #ffffff * (0.5 + 0.5 * sin(TIME))")).unwrap();
+        assert!(tape.pixel.is_empty());
+        assert_eq!(count(&tape, Op::Sin), 1);
     }
 
     #[test]
     fn impossible_checks_leave_the_tape() {
         let tape = tape_of(SUN).unwrap();
-        let checks = |step: &Step| matches!(step.op, Op::IsNan | Op::Select | Op::Clamp);
-        assert!(!tape.steps.iter().any(checks));
+        for check in [Op::IsNan, Op::Select, Op::Clamp] {
+            assert_eq!(count(&tape, check), 0, "{check:?}");
+        }
         assert!(
-            tape.steps.len() <= 44,
-            "sun.fld has {} steps",
-            tape.steps.len()
+            tape.frame.len() <= 4,
+            "sun.fld has {} frame steps",
+            tape.frame.len()
+        );
+        assert!(
+            tape.pixel.len() <= 29,
+            "sun.fld has {} pixel steps",
+            tape.pixel.len()
         );
     }
 }

@@ -19,10 +19,11 @@ pub fn frame(tape: &Tape, buffer: &mut [u32], width: usize, height: usize, time:
 
 fn rows(tape: &Tape, pixels: &mut [u32], first_row: usize, width: usize, height: usize, time: f32) {
     let mut slots = tape.slots();
+    tape.start_frame(&mut slots, &[time]);
     for (i, out) in pixels.iter_mut().enumerate() {
         let x = (i % width) as f32 + 0.5 - width as f32 / 2.0;
         let y = (first_row + i / width) as f32 + 0.5 - height as f32 / 2.0;
-        let [r, g, b, _] = tape.run(&mut slots, &[x, y, time]);
+        let [r, g, b, _] = tape.run(&mut slots, &[x, y]);
         *out = to_u32(r, g, b);
     }
 }
