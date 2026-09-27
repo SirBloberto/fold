@@ -174,7 +174,7 @@ impl<'a> Env<'a> {
     fn expr(&self, expr: &'a Expr) -> Result<Value<'a>, String> {
         let value = match &expr.kind {
             ExprKind::Num(n) => Value::Num(*n),
-            ExprKind::Rgba(hex) => Value::Rgba(Rgba::hex(*hex >> 8)),
+            ExprKind::Rgba(hex) => Value::Rgba(Rgba::hex(*hex)),
             ExprKind::Name(name) => match self.lookup(name) {
                 Some(value) => value,
                 None => return Err(at(&format!("unknown name `{name}`"), expr.pos)),
@@ -204,11 +204,16 @@ impl<'a> Env<'a> {
                     None => self.native(name, &args, expr.pos)?,
                 }
             }
-            ExprKind::Field { target, field } => match (self.expr(target)?, field.as_str()) {
-                (Value::Vec2(v), "x") => Value::Num(v.x),
-                (Value::Vec2(v), "y") => Value::Num(v.y),
-                _ => return Err(at(&format!("no field `{field}`"), expr.pos)),
-            },
+            ExprKind::Field { target, field } => {
+                let value = self.expr(target)?;
+                match swizzle(&value, field) {
+                    Some(value) => value,
+                    None => {
+                        let message = format!("a {} has no field `{field}`", value.type_name());
+                        return Err(at(&message, expr.pos));
+                    }
+                }
+            }
             ExprKind::Lambda { param, body } => Value::Func(Rc::new(Closure {
                 params: vec![param.as_str()],
                 body: Body::Expr(body),
@@ -279,6 +284,10 @@ impl<'a> Env<'a> {
             ("max", [Num(a), Num(b)]) => Num(a.max(*b)),
 
             ("vec2", [Num(x), Num(y)]) => Vec2(pixel::vec2(*x, *y)),
+
+            ("rgba", [Num(r), Num(g), Num(b), Num(a)]) => {
+                Rgba(pixel::Rgba::from_srgb(*r, *g, *b, *a))
+            }
 
             ("hash", [Vec2(pt)]) => Num(pixel::hash(*pt)),
 
@@ -366,6 +375,44 @@ fn binary<'a>(op: BinOp, left: Value<'a>, right: Value<'a>) -> Result<Value<'a>,
         }
     };
     Ok(result)
+}
+
+fn swizzle<'a>(value: &Value<'a>, field: &str) -> Option<Value<'a>> {
+    match value {
+        Value::Vec2(v) => {
+            let parts = pick(field, |c| match c {
+                'x' => Some(v.x),
+                'y' => Some(v.y),
+                _ => None,
+            })?;
+            match parts[..] {
+                [n] => Some(Value::Num(n)),
+                [x, y] => Some(Value::Vec2(pixel::vec2(x, y))),
+                _ => None,
+            }
+        }
+        Value::Rgba(col) => {
+            let [r, g, b, a] = col.to_srgb();
+            let parts = pick(field, |c| match c {
+                'r' => Some(r),
+                'g' => Some(g),
+                'b' => Some(b),
+                'a' => Some(a),
+                _ => None,
+            })?;
+            match parts[..] {
+                [n] => Some(Value::Num(n)),
+                [r, g, b] => Some(Value::Rgba(Rgba::from_srgb(r, g, b, 1.0))),
+                [r, g, b, a] => Some(Value::Rgba(Rgba::from_srgb(r, g, b, a))),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn pick(field: &str, part: impl Fn(char) -> Option<f32>) -> Option<Vec<f32>> {
+    field.chars().map(part).collect()
 }
 
 fn symbol(op: BinOp) -> &'static str {
@@ -681,5 +728,51 @@ mod tests {
         let src = "func clamp(x, lo, hi) { return 99 }\n";
         close(&format!("{src}let result = smoothstep(0, 1, 0.5)"), 0.5);
         close(&format!("{src}let result = clamp(0, 0, 1)"), 99.0);
+    }
+
+        #[test]
+    fn colours_read_back_as_written() {
+        close("let result = #ff8800.r", 1.0);
+        close("let result = #ff8800.g", 136.0 / 255.0);
+        close("let result = #ff8800.a", 1.0);
+        close("let result = #00000066.a", 0.4);
+    }
+
+    #[test]
+    fn multiplying_a_colour_fades_it() {
+        close("let result = (#ff8800 * 0.5).a", 0.5);
+        close("let result = (#ff8800 * 0.5).r", 1.0);
+    }
+
+    #[test]
+    fn rgba_makes_a_colour() {
+        close("let result = rgba(1, 0.5, 0, 0.25).g", 0.5);
+        close("let result = rgba(1, 0.5, 0, 0.25).a", 0.25);
+    }
+
+    #[test]
+    fn vec2_swizzles() {
+        close("let result = vec2(1, 2).yx.x", 2.0);
+        close("let result = vec2(1, 2).xx.y", 1.0);
+        let error = num("let result = vec2(1, 2).z").unwrap_err();
+        assert!(error.contains("a vec2 has no field `z`"), "{error}");
+        let error = num("let result = vec2(1, 2).xyx").unwrap_err();
+        assert!(error.contains("no field `xyx`"), "{error}");
+    }
+
+    #[test]
+    fn rgba_swizzles() {
+        close("let result = #ff880066.rgb.a", 1.0);
+        close("let result = #ff8800.bgr.r", 0.0);
+        close("let result = #ff880066.bgra.a", 0.4);
+        let error = num("let result = #ff8800.rg").unwrap_err();
+        assert!(error.contains("a rgba has no field `rg`"), "{error}");
+    }
+
+    #[test]
+    fn shade_darkens_and_lightens() {
+        close("let result = shade(#808080, 1).r", 1.0);
+        close("let result = shade(#808080, -1).r", 0.0);
+        close("let result = shade(#80808080, 1).a", 128.0 / 255.0);
     }
 }
