@@ -1,4 +1,4 @@
-use crate::tape::Op;
+use super::Op;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Range {

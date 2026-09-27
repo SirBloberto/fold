@@ -1,4 +1,4 @@
-use crate::pixel::{Vec2, vec2};
+use super::{Vec2, vec2};
 use crate::tape::Scalar;
 
 #[derive(Clone, Copy, Debug, PartialEq)]

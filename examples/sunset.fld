@@ -1,0 +1,46 @@
+~fold v1 480x320
+
+input height: 0..1 = 0.4
+
+let horizon = 100
+let sun_x = 70
+let sun = circle(30) |> at(sun_x, -40 - height * 60)
+
+func ridge(x, scale, seed) {
+    return noise(vec2(x / scale, seed)) + noise(vec2(x / scale * 2.3, seed + 7)) * 0.4
+}
+
+func hills(base, scale, rise, seed) {
+    return shape(pt => (base - ridge(pt.x, scale, seed) * rise - pt.y) * 0.4)
+}
+
+func bird(x, y, flap) {
+    let left = segment(vec2(-7, -3 + flap * 4), vec2(0, 1))
+    let right = segment(vec2(0, 1), vec2(7, -3 + flap * 4))
+    return union(left, right) |> grow(0.8) |> at(x, y)
+}
+
+let sky = mix(#ffb36b, #2a1b4d, smoothstep(horizon, -160, POS.y))
+let cell = vec2(floor(POS.x / 3), floor(POS.y / 3))
+let twinkle = 0.6 + 0.4 * sin(TIME * 3 + hash(cell) * 50)
+let stars = smoothstep(0.994, 1, hash(cell)) * twinkle * smoothstep(-20, -140, POS.y)
+
+let lake = rect(480, 120) |> at(0, horizon + 60)
+let ripple = sin(POS.y * 0.8 - TIME * 2) * sin(POS.y * 0.13 + TIME)
+let spread = 12 + (POS.y - horizon) * 0.4
+let streak = 1 - smoothstep(spread * 0.3, spread, abs(POS.x - sun_x + ripple * 5))
+let water = mix(#e0875a, #1c1233, smoothstep(horizon, 160, POS.y))
+
+let drift = mod(TIME * 14 + 200, 640) - 320
+
+draw FRAME |> fill(sky)
+draw #ffffff * stars
+draw sun |> glow(#ffc46b, 40)
+draw sun |> fill(#fff1c4)
+draw hills(40, 90, 90, 1) |> fill(#8a5578)
+draw hills(70, 60, 70, 11) |> fill(#553560)
+draw hills(95, 40, 45, 23) |> fill(#2c1b38)
+draw lake |> fill(water)
+draw lake |> fill(#ffd89a * (streak * (0.55 + 0.35 * ripple)))
+draw bird(drift, -70, sin(TIME * 7)) |> fill(#2c1b38)
+draw bird(drift - 22, -58, sin(TIME * 7 + 1.5)) |> fill(#2c1b38)

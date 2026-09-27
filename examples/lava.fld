@@ -1,0 +1,16 @@
+~fold v1 240x400
+
+func blob(r, speed, phase) {
+    let x = sin(TIME * speed + phase) * 50
+    let y = sin(TIME * speed * 0.7 + phase * 2) * 90
+    return circle(r) |> at(x, y)
+}
+
+let lava = blob(40, 0.7, 0)
+    |> smooth_union(blob(32, 0.9, 2), 40)
+    |> smooth_union(blob(28, 1.1, 4), 40)
+    |> smooth_union(blob(36, 0.6, 5), 40)
+
+draw FRAME |> fill(mix(#2b0a3d, #0a0418, smoothstep(-200, 200, POS.y)))
+draw lava |> glow(#ff5e3a, 16)
+draw lava |> fill(mix(#ffcf4d, #ff3d6e, smoothstep(-150, 150, POS.y)))

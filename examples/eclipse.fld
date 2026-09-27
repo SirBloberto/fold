@@ -1,0 +1,5 @@
+~fold v1 300x300
+
+draw FRAME |> fill(#05060a)
+draw circle(70) |> glow(#ffd27a, 24 + sin(TIME) * 6)
+draw circle(70) |> at(sin(TIME * 0.3) * 40, -4) |> fill(#05060a)

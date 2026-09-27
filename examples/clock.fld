@@ -1,0 +1,20 @@
+~fold v1 320x320
+
+let face = circle(140)
+let minutes = rect(10, 2) |> at(126, 0) |> around(60)
+let hours = rect(20, 5) |> at(121, 0) |> around(12)
+
+func hand(length, width, turns) {
+    return segment(vec2(0, 14), vec2(0, -length)) |> grow(width / 2) |> spin(turns * TAU)
+}
+
+draw FRAME |> fill(#e9e4da)
+draw face |> at(0, 8) |> soft(#00000048, 16)
+draw face |> fill(#fbf8f2)
+draw face |> outline(5) |> fill(#2d2a26)
+draw minutes |> fill(#9a948a)
+draw hours |> fill(#2d2a26)
+draw hand(70, 9, TIME / 43200 + 0.85) |> fill(#2d2a26)
+draw hand(108, 6, TIME / 3600 + 0.17) |> fill(#2d2a26)
+draw hand(118, 2, floor(TIME) / 60) |> fill(#d94535)
+draw circle(7) |> fill(#d94535)
