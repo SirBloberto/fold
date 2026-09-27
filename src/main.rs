@@ -1,5 +1,6 @@
 mod eval;
 mod pixel;
+mod range;
 mod shape;
 mod syntax;
 mod tape;
@@ -66,7 +67,7 @@ fn render_rows(
     for (i, out) in pixels.iter_mut().enumerate() {
         let x = (i % width) as f32 + 0.5 - width as f32 / 2.0;
         let y = (first_row + i / width) as f32 + 0.5 - height as f32 / 2.0;
-        let [r, g, b, _] = tape.run(&mut slots, &[x, y, time, 1.0]);
+        let [r, g, b, _] = tape.run(&mut slots, &[x, y, time]);
         *out = pixel::to_u32(r, g, b);
     }
 }

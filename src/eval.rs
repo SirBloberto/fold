@@ -2,6 +2,7 @@ use std::rc::Rc;
 use std::sync::LazyLock;
 
 use crate::pixel::{self, Rgba, Vec2};
+use crate::range::Range;
 use crate::shape::{self, Bounds};
 use crate::syntax::ast::{BinOp, Expr, ExprKind, Program, Stmt, StmtKind};
 use crate::syntax::lexer::lex;
@@ -101,14 +102,23 @@ impl Prelude {
     }
 }
 
-pub fn compile(program: &Program) -> Result<Tape, String> {
-    let size = pixel::vec2(program.header.width as f32, program.header.height as f32);
+pub const LONGEST_TIME: f32 = 16_777_216.0;
+
+pub fn compile(program: &Program, px: f32) -> Result<Tape, String> {
+    let (width, height) = (program.header.width as f32, program.header.height as f32);
+    let size = pixel::vec2(width, height);
     let prelude = Prelude::load(size)?;
-    Tape::record(4, |inputs| {
+    let across = |length: f32| Range::between(px / 2.0 - length / 2.0, length / 2.0 - px / 2.0);
+    let inputs = [
+        across(width),
+        across(height),
+        Range::between(0.0, LONGEST_TIME),
+    ];
+    Tape::record(&inputs, |inputs| {
         let pixel = Pixel {
             pos: pixel::vec2(inputs[0], inputs[1]),
             time: inputs[2],
-            px: inputs[3],
+            px: Scalar::from(px),
             size,
         };
         Ok(run(program, &prelude, pixel)?.channels())
@@ -992,7 +1002,7 @@ mod tests {
     fn same_on_tape(src: &str) {
         let (header, rest) = parse_header(src).unwrap();
         let program = parse(header, lex(rest, 2).unwrap()).unwrap();
-        let tape = compile(&program).unwrap();
+        let tape = compile(&program, 1.0).unwrap();
         let size = pixel::vec2(program.header.width as f32, program.header.height as f32);
         let prelude = Prelude::load(size).unwrap();
         let mut slots = tape.slots();
@@ -1007,7 +1017,7 @@ mod tests {
                         size,
                     };
                     let want = run(&program, &prelude, pixel).unwrap().channels();
-                    let got = tape.run(&mut slots, &[x, y, time, 1.0]);
+                    let got = tape.run(&mut slots, &[x, y, time]);
                     for (want, got) in want.iter().zip(got) {
                         let want = want.known().unwrap();
                         assert_eq!(want.to_bits(), got.to_bits(), "at ({x}, {y}): {src}");
@@ -1034,7 +1044,7 @@ mod tests {
         let src = "~fold v1 256x256\nlet sun = circle(10)\ndraw sun |> fill(#ffaa00) + 1";
         let (header, rest) = parse_header(src).unwrap();
         let program = parse(header, lex(rest, 2).unwrap()).unwrap();
-        let error = compile(&program).unwrap_err();
+        let error = compile(&program, 1.0).unwrap_err();
         assert!(error.contains("can't use `+` on rgba and num"), "{error}");
     }
 
@@ -1043,11 +1053,58 @@ mod tests {
         let src = "~fold v1 256x256\nlet k = sin(1) * 20 + 3\ndraw #ffffff * k";
         let (header, rest) = parse_header(src).unwrap();
         let program = parse(header, lex(rest, 2).unwrap()).unwrap();
-        let tape = compile(&program).unwrap();
+        let tape = compile(&program, 1.0).unwrap();
         assert!(
             tape.steps
                 .iter()
                 .all(|step| step.op != crate::tape::Op::Sin)
+        );
+    }
+
+    fn tape_of(body: &str) -> Tape {
+        let src = format!("~fold v1 256x256\n{body}");
+        let (header, rest) = parse_header(&src).unwrap();
+        let program = parse(header, lex(rest, 2).unwrap()).unwrap();
+        compile(&program, 1.0).unwrap()
+    }
+
+    #[test]
+    fn checks_that_can_fire_stay_exact() {
+        for body in [
+            "draw #ffffff * sqrt(POS.x)",
+            "draw #ffffff * (POS.x * 0)",
+            "draw rgba(1, 1, 1, POS.x / 100)",
+            "draw #ffffff * (POS.y / 40)\ndraw #ff000080 + #00ff0080 * (POS.x / 64)",
+            "draw #3366ff * -1",
+            "draw FRAME |> fill(#101820)\ndraw #ffffff * (0 / POS.x)",
+        ] {
+            same_on_tape(&format!("~fold v1 256x256\n{body}"));
+        }
+    }
+
+    #[test]
+    fn a_solid_background_is_a_constant() {
+        let tape = tape_of("draw FRAME |> fill(#101820)");
+        let constant = |slot: &u32| tape.constants.iter().any(|(at, _)| at == slot);
+        assert!(tape.outputs.iter().all(constant));
+    }
+
+    #[test]
+    fn impossible_checks_leave_the_tape() {
+        let sun = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/examples/sun.fld"));
+        let (header, rest) = parse_header(sun).unwrap();
+        let program = parse(header, lex(rest, 2).unwrap()).unwrap();
+        let tape = compile(&program, 1.0).unwrap();
+        use crate::tape::Op;
+        assert!(
+            tape.steps
+                .iter()
+                .all(|step| !matches!(step.op, Op::IsNan | Op::Select | Op::Clamp))
+        );
+        assert!(
+            tape.steps.len() <= 44,
+            "sun.fld has {} steps",
+            tape.steps.len()
         );
     }
 }

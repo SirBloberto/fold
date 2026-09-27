@@ -91,7 +91,7 @@ fn load(path: &str) -> Result<(Program, Tape), String> {
     let (header, rest) = syntax::header::parse_header(&src)?;
     let tokens = syntax::lexer::lex(rest, 2)?;
     let program = syntax::parser::parse(header, tokens)?;
-    let tape = eval::compile(&program)?;
+    let tape = eval::compile(&program, 1.0)?;
     Ok((program, tape))
 }
 

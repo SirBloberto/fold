@@ -32,6 +32,7 @@ Every shape carries a bounding box, which the engine uses for culling and which 
 |---|---|
 | Source size | 1 MB |
 | Nesting depth | 256 |
+| `TIME` | 0 to 2²⁴ seconds (about 194 days). Hosts keep `TIME` in this range, since beyond it a 32-bit float can no longer tell one frame from the next. |
 | Work per pixel | An instruction budget *(open: value)* |
 
 A file that exceeds a limit fails to load.
