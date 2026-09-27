@@ -1,7 +1,9 @@
 use std::time::{Duration, Instant, SystemTime};
 
+use crate::eval;
 use crate::syntax;
 use crate::syntax::ast::Program;
+use crate::tape::Tape;
 
 const FRAME_BUDGET: Duration = Duration::from_micros(16_667);
 
@@ -48,18 +50,18 @@ impl Stats {
 pub struct Live {
     pub path: String,
     pub program: Program,
-    pub broken: bool,
+    pub tape: Tape,
     modified: Option<SystemTime>,
 }
 
 impl Live {
     pub fn open(path: String) -> Result<Live, String> {
-        let program = load(&path)?;
+        let (program, tape) = load(&path)?;
         Ok(Live {
             modified: modified(&path),
             path,
             program,
-            broken: false,
+            tape,
         })
     }
 
@@ -71,12 +73,12 @@ impl Live {
         self.modified = now;
 
         match load(&self.path) {
-            Ok(program) if program.header != self.program.header => {
+            Ok((program, _)) if program.header != self.program.header => {
                 eprintln!("{}: restart to change the header", self.path);
             }
-            Ok(program) => {
+            Ok((program, tape)) => {
                 self.program = program;
-                self.broken = false;
+                self.tape = tape;
                 println!("{}: reloaded", self.path);
             }
             Err(e) => eprintln!("{}: {e}", self.path),
@@ -84,11 +86,13 @@ impl Live {
     }
 }
 
-fn load(path: &str) -> Result<Program, String> {
+fn load(path: &str) -> Result<(Program, Tape), String> {
     let src = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     let (header, rest) = syntax::header::parse_header(&src)?;
     let tokens = syntax::lexer::lex(rest, 2)?;
-    syntax::parser::parse(header, tokens)
+    let program = syntax::parser::parse(header, tokens)?;
+    let tape = eval::compile(&program)?;
+    Ok((program, tape))
 }
 
 fn modified(path: &str) -> Option<SystemTime> {

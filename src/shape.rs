@@ -1,4 +1,5 @@
 use crate::pixel::{Vec2, vec2};
+use crate::tape::Scalar;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Bounds {
@@ -28,11 +29,11 @@ impl Bounds {
     }
 }
 
-pub fn circle(pt: Vec2, r: f32) -> f32 {
+pub fn circle(pt: Vec2, r: Scalar) -> Scalar {
     pt.length() - r
 }
 
-pub fn rect(pt: Vec2, half: Vec2) -> f32 {
+pub fn rect(pt: Vec2, half: Vec2) -> Scalar {
     let dx = pt.x.abs() - half.x;
     let dy = pt.y.abs() - half.y;
     let outside = vec2(dx.max(0.0), dy.max(0.0)).length();
@@ -40,7 +41,7 @@ pub fn rect(pt: Vec2, half: Vec2) -> f32 {
     outside + inside
 }
 
-pub fn segment(pt: Vec2, from: Vec2, to: Vec2) -> f32 {
+pub fn segment(pt: Vec2, from: Vec2, to: Vec2) -> Scalar {
     let along = to - from;
     let rel = pt - from;
     let amt = (rel.dot(along) / along.dot(along)).clamp(0.0, 1.0);

@@ -7,6 +7,7 @@ use crate::syntax::ast::{BinOp, Expr, ExprKind, Program, Stmt, StmtKind};
 use crate::syntax::lexer::lex;
 use crate::syntax::parser::parse_prelude;
 use crate::syntax::token::Pos;
+use crate::tape::{Scalar, Tape};
 
 static PRELUDE: LazyLock<Vec<Stmt>> = LazyLock::new(|| {
     let tokens = lex(include_str!("prelude.fld"), 1).expect("the prelude lexes");
@@ -15,7 +16,7 @@ static PRELUDE: LazyLock<Vec<Stmt>> = LazyLock::new(|| {
 
 #[derive(Clone)]
 pub enum Value<'a> {
-    Num(f32),
+    Num(Scalar),
     Vec2(Vec2),
     Rgba(Rgba),
     Func(Rc<Closure<'a>>),
@@ -39,7 +40,7 @@ pub struct Shape<'a> {
 }
 
 enum ShapeKind<'a> {
-    Circle(f32),
+    Circle(Scalar),
     Rect(Vec2),
     Segment(Vec2, Vec2),
     Custom(Rc<Closure<'a>>),
@@ -69,8 +70,8 @@ impl Value<'_> {
 #[derive(Clone, Copy)]
 pub struct Pixel {
     pub pos: Vec2,
-    pub time: f32,
-    pub px: f32,
+    pub time: Scalar,
+    pub px: Scalar,
     pub size: Vec2,
 }
 
@@ -84,8 +85,8 @@ impl Prelude {
         let mut env = Env {
             pixel: Pixel {
                 pos: origin,
-                time: 0.0,
-                px: 1.0,
+                time: Scalar::from(0.0),
+                px: Scalar::from(1.0),
                 size,
             },
             globals: &[],
@@ -98,6 +99,20 @@ impl Prelude {
         }
         Ok(Prelude { vars: env.vars })
     }
+}
+
+pub fn compile(program: &Program) -> Result<Tape, String> {
+    let size = pixel::vec2(program.header.width as f32, program.header.height as f32);
+    let prelude = Prelude::load(size)?;
+    Tape::record(4, |inputs| {
+        let pixel = Pixel {
+            pos: pixel::vec2(inputs[0], inputs[1]),
+            time: inputs[2],
+            px: inputs[3],
+            size,
+        };
+        Ok(run(program, &prelude, pixel)?.channels())
+    })
 }
 
 pub fn run(program: &Program, prelude: &Prelude, pixel: Pixel) -> Result<Rgba, String> {
@@ -167,10 +182,13 @@ impl<'a> Env<'a> {
         let message = match (range, default) {
             (None, Value::Rgba(_)) => return Ok(()),
             (Some((min, max)), Value::Num(n)) => match (self.expr(min)?, self.expr(max)?) {
-                (Value::Num(lo), Value::Num(hi)) if lo <= *n && *n <= hi => return Ok(()),
-                (Value::Num(lo), Value::Num(hi)) => {
-                    format!("the default {n} is outside {lo}..{hi}")
-                }
+                (Value::Num(lo), Value::Num(hi)) => match (lo.known(), hi.known(), n.known()) {
+                    (Some(lo), Some(hi), Some(n)) if lo <= n && n <= hi => return Ok(()),
+                    (Some(lo), Some(hi), Some(n)) => {
+                        format!("the default {n} is outside {lo}..{hi}")
+                    }
+                    _ => "an input's range and default must be constants".into(),
+                },
                 _ => "an input's range must be two nums".into(),
             },
             (Some(_), other) => format!(
@@ -206,7 +224,7 @@ impl<'a> Env<'a> {
 
     fn expr(&self, expr: &'a Expr) -> Result<Value<'a>, String> {
         let value = match &expr.kind {
-            ExprKind::Num(n) => Value::Num(*n),
+            ExprKind::Num(n) => Value::Num(Scalar::from(*n)),
             ExprKind::Rgba(hex) => Value::Rgba(Rgba::hex(*hex)),
             ExprKind::Name(name) => match self.lookup(name) {
                 Some(value) => value,
@@ -328,7 +346,7 @@ impl<'a> Env<'a> {
                 new_shape(ShapeKind::Circle(*r), Bounds::around(pixel::vec2(*r, *r)))
             }
             ("rect", [Num(w), Num(h)]) => {
-                let half = pixel::vec2(w / 2.0, h / 2.0);
+                let half = pixel::vec2(*w / 2.0, *h / 2.0);
                 new_shape(ShapeKind::Rect(half), Bounds::around(half))
             }
             ("segment", [Vec2(from), Vec2(to)]) => {
@@ -353,7 +371,7 @@ impl<'a> Env<'a> {
         Ok(result)
     }
 
-    fn dist(&self, sh: &Shape<'a>, pt: Vec2, pos: Pos) -> Result<f32, String> {
+    fn dist(&self, sh: &Shape<'a>, pt: Vec2, pos: Pos) -> Result<Scalar, String> {
         let d = match &sh.kind {
             ShapeKind::Circle(r) => shape::circle(pt, *r),
             ShapeKind::Rect(half) => shape::rect(pt, *half),
@@ -389,8 +407,8 @@ fn binary<'a>(op: BinOp, left: Value<'a>, right: Value<'a>) -> Result<Value<'a>,
 
         (Add, Vec2(a), Vec2(b)) => Vec2(a + b),
         (Sub, Vec2(a), Vec2(b)) => Vec2(a - b),
-        (Mul, Vec2(a), Vec2(b)) => Vec2(a * b),
-        (Div, Vec2(a), Vec2(b)) => Vec2(a / b),
+        (Mul, Vec2(a), Vec2(b)) => Vec2(a.times(b)),
+        (Div, Vec2(a), Vec2(b)) => Vec2(a.per(b)),
 
         (Mul, Vec2(v), Num(k)) | (Mul, Num(k), Vec2(v)) => Vec2(v * k),
         (Div, Vec2(v), Num(k)) => Vec2(v / k),
@@ -435,7 +453,7 @@ fn swizzle<'a>(value: &Value<'a>, field: &str) -> Option<Value<'a>> {
             })?;
             match parts[..] {
                 [n] => Some(Value::Num(n)),
-                [r, g, b] => Some(Value::Rgba(Rgba::from_srgb(r, g, b, 1.0))),
+                [r, g, b] => Some(Value::Rgba(Rgba::from_srgb(r, g, b, Scalar::from(1.0)))),
                 [r, g, b, a] => Some(Value::Rgba(Rgba::from_srgb(r, g, b, a))),
                 _ => None,
             }
@@ -444,7 +462,7 @@ fn swizzle<'a>(value: &Value<'a>, field: &str) -> Option<Value<'a>> {
     }
 }
 
-fn pick(field: &str, part: impl Fn(char) -> Option<f32>) -> Option<Vec<f32>> {
+fn pick(field: &str, part: impl Fn(char) -> Option<Scalar>) -> Option<Vec<Scalar>> {
     field.chars().map(part).collect()
 }
 
@@ -472,13 +490,13 @@ mod tests {
         let src = format!("~fold v1 256x256\n{body}");
         let (header, rest) = parse_header(&src)?;
         let program = parse(header, lex(rest, 2)?)?;
-        let size = Vec2 { x: 256.0, y: 256.0 };
+        let size = pixel::vec2(256.0, 256.0);
         let prelude = Prelude::load(size)?;
         let mut env = Env {
             pixel: Pixel {
-                pos: Vec2 { x: 0.0, y: 0.0 },
-                time: 0.0,
-                px: 1.0,
+                pos: pixel::vec2(0.0, 0.0),
+                time: Scalar::from(0.0),
+                px: Scalar::from(1.0),
                 size,
             },
             globals: &prelude.vars,
@@ -489,7 +507,7 @@ mod tests {
             env.statement(stmt)?;
         }
         match env.lookup("result") {
-            Some(Value::Num(n)) => Ok(n),
+            Some(Value::Num(n)) => n.known().ok_or("`result` is not known".into()),
             _ => Err("`result` is not a num".into()),
         }
     }
@@ -808,56 +826,59 @@ mod tests {
         close("let result = shade(#80808080, 1).a", 128.0 / 255.0);
     }
 
-    fn canvas_at(src: &str, pos: Vec2) -> Result<Rgba, String> {
+    fn canvas_at(src: &str, pos: Vec2) -> Result<[f32; 4], String> {
         let (header, rest) = parse_header(src)?;
         let program = parse(header, lex(rest, 2)?)?;
-        let size = Vec2 {
-            x: program.header.width as f32,
-            y: program.header.height as f32,
-        };
+        let size = pixel::vec2(program.header.width as f32, program.header.height as f32);
         let prelude = Prelude::load(size)?;
         let pixel = Pixel {
             pos,
-            time: 0.0,
-            px: 1.0,
+            time: Scalar::from(0.0),
+            px: Scalar::from(1.0),
             size,
         };
-        run(&program, &prelude, pixel)
+        let canvas = run(&program, &prelude, pixel)?;
+        Ok(canvas.channels().map(|c| c.known().unwrap()))
     }
 
-    fn canvas(body: &str) -> Result<Rgba, String> {
-        canvas_at(
-            &format!("~fold v1 256x256\n{body}"),
-            Vec2 { x: 0.0, y: 0.0 },
-        )
+    fn hex(rgba: u32) -> [f32; 4] {
+        Rgba::hex(rgba).channels().map(|c| c.known().unwrap())
+    }
+
+    fn byte_colour([r, g, b, _]: [f32; 4]) -> u32 {
+        pixel::to_u32(r, g, b)
+    }
+
+    fn canvas(body: &str) -> Result<[f32; 4], String> {
+        canvas_at(&format!("~fold v1 256x256\n{body}"), pixel::vec2(0.0, 0.0))
     }
 
     #[test]
     fn canvas_starts_transparent() {
-        assert_eq!(canvas("let x = 1"), Ok(Rgba::CLEAR));
+        assert_eq!(canvas("let x = 1"), Ok([0.0; 4]));
     }
 
     #[test]
     fn opaque_draw_covers_what_is_below() {
         let top = canvas("draw #0000ff\ndraw #ff0000").unwrap();
-        assert_eq!(top, Rgba::hex(0xff0000ff));
+        assert_eq!(top, hex(0xff0000ff));
     }
 
     #[test]
     fn transparent_draw_blends_in_linear_light() {
         let mixed = canvas("draw #0000ff\ndraw #ff0000 * 0.5").unwrap();
-        assert_eq!(mixed.a, 1.0);
-        assert!((mixed.r - 0.5).abs() < 1e-6, "{mixed:?}");
-        assert!((mixed.b - 0.5).abs() < 1e-6, "{mixed:?}");
+        assert_eq!(mixed[3], 1.0);
+        assert!((mixed[0] - 0.5).abs() < 1e-6, "{mixed:?}");
+        assert!((mixed[2] - 0.5).abs() < 1e-6, "{mixed:?}");
     }
 
     #[test]
     fn draw_makes_colours_valid() {
         let bright = canvas("draw #ffffff * 3").unwrap();
-        assert_eq!(bright, Rgba::hex(0xffffffff));
+        assert_eq!(bright, hex(0xffffffff));
         let summed = canvas("draw #ff0000 * 0.5 + #00ff00 * 0.5 + #0000ff").unwrap();
-        assert_eq!(summed.a, 1.0);
-        assert!(summed.r <= summed.a && summed.b <= summed.a);
+        assert_eq!(summed[3], 1.0);
+        assert!(summed[0] <= summed[3] && summed[2] <= summed[3]);
     }
 
     #[test]
@@ -891,18 +912,11 @@ mod tests {
     #[test]
     fn sun_example_renders() {
         let sun = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/examples/sun.fld"));
-        let centre = canvas_at(sun, Vec2 { x: 0.0, y: 0.0 }).unwrap();
-        assert_eq!(centre.to_u32(), 0xffaa00);
-        let corner = canvas_at(
-            sun,
-            Vec2 {
-                x: -250.0,
-                y: -250.0,
-            },
-        )
-        .unwrap();
-        assert_eq!(corner.a, 1.0);
-        assert_ne!(corner.to_u32(), 0xffaa00);
+        let centre = canvas_at(sun, pixel::vec2(0.0, 0.0)).unwrap();
+        assert_eq!(byte_colour(centre), 0xffaa00);
+        let corner = canvas_at(sun, pixel::vec2(-120.0, -120.0)).unwrap();
+        assert_eq!(corner[3], 1.0);
+        assert_ne!(byte_colour(corner), 0xffaa00);
     }
 
     #[test]
@@ -912,12 +926,9 @@ mod tests {
         for recipe in recipes {
             let src = format!("~fold v1 256x256\n{}", recipe.trim_start());
             for pos in [
-                Vec2 { x: 0.0, y: 0.0 },
-                Vec2 { x: 40.0, y: -30.0 },
-                Vec2 {
-                    x: -120.0,
-                    y: 110.0,
-                },
+                pixel::vec2(0.0, 0.0),
+                pixel::vec2(40.0, -30.0),
+                pixel::vec2(-120.0, 110.0),
             ] {
                 if let Err(e) = canvas_at(&src, pos) {
                     panic!("{e}\n{recipe}");
@@ -947,7 +958,7 @@ mod tests {
     #[test]
     fn nan_colours_draw_as_transparent() {
         let red = canvas("draw #ff0000\ndraw #ffffff * (0 / 0)").unwrap();
-        assert_eq!(red, Rgba::hex(0xff0000ff));
+        assert_eq!(red, hex(0xff0000ff));
     }
 
     #[test]
@@ -972,9 +983,71 @@ mod tests {
 
     #[test]
     fn other_versions_are_refused() {
-        let error = canvas_at("~fold v0 256x256\n", Vec2 { x: 0.0, y: 0.0 }).unwrap_err();
+        let error = canvas_at("~fold v0 256x256\n", pixel::vec2(0.0, 0.0)).unwrap_err();
         assert!(error.contains("this engine supports v1"), "{error}");
-        let error = canvas_at("~fold v2 256x256\n", Vec2 { x: 0.0, y: 0.0 }).unwrap_err();
+        let error = canvas_at("~fold v2 256x256\n", pixel::vec2(0.0, 0.0)).unwrap_err();
         assert!(error.contains("this file is Fold v2"), "{error}");
+    }
+
+    fn same_on_tape(src: &str) {
+        let (header, rest) = parse_header(src).unwrap();
+        let program = parse(header, lex(rest, 2).unwrap()).unwrap();
+        let tape = compile(&program).unwrap();
+        let size = pixel::vec2(program.header.width as f32, program.header.height as f32);
+        let prelude = Prelude::load(size).unwrap();
+        let mut slots = tape.slots();
+        for time in [0.0, 1.3] {
+            for y in (-128..128).step_by(9) {
+                for x in (-128..128).step_by(9) {
+                    let (x, y) = (x as f32 + 0.5, y as f32 + 0.5);
+                    let pixel = Pixel {
+                        pos: pixel::vec2(x, y),
+                        time: Scalar::from(time),
+                        px: Scalar::from(1.0),
+                        size,
+                    };
+                    let want = run(&program, &prelude, pixel).unwrap().channels();
+                    let got = tape.run(&mut slots, &[x, y, time, 1.0]);
+                    for (want, got) in want.iter().zip(got) {
+                        let want = want.known().unwrap();
+                        assert_eq!(want.to_bits(), got.to_bits(), "at ({x}, {y}): {src}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn tape_matches_the_reference_bit_for_bit() {
+        same_on_tape(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/examples/sun.fld"
+        )));
+        let book = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/COOKBOOK.md"));
+        for recipe in book.split("```").skip(1).step_by(2) {
+            same_on_tape(&format!("~fold v1 256x256\n{}", recipe.trim_start()));
+        }
+    }
+
+    #[test]
+    fn errors_are_found_when_compiling() {
+        let src = "~fold v1 256x256\nlet sun = circle(10)\ndraw sun |> fill(#ffaa00) + 1";
+        let (header, rest) = parse_header(src).unwrap();
+        let program = parse(header, lex(rest, 2).unwrap()).unwrap();
+        let error = compile(&program).unwrap_err();
+        assert!(error.contains("can't use `+` on rgba and num"), "{error}");
+    }
+
+    #[test]
+    fn constant_work_leaves_the_tape() {
+        let src = "~fold v1 256x256\nlet k = sin(1) * 20 + 3\ndraw #ffffff * k";
+        let (header, rest) = parse_header(src).unwrap();
+        let program = parse(header, lex(rest, 2).unwrap()).unwrap();
+        let tape = compile(&program).unwrap();
+        assert!(
+            tape.steps
+                .iter()
+                .all(|step| step.op != crate::tape::Op::Sin)
+        );
     }
 }
