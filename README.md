@@ -40,7 +40,7 @@ Good for animated icons and loaders, UI that reacts to hover or progress, data-d
 
 ## Status
 
-**Early development.** The engine runs the language in SPEC.md, reloads files live and renders on all cores. Each file is compiled once, when it loads, into a flat list of maths steps: every error is reported at load time, and checks that can never fire are removed. It differs from the spec in four ways: a custom shape's bounding box is the whole canvas, so `anchor` and `pin` are exact only for built-in shapes; `sin`, `exp`, `pow` and the other maths functions come from the platform, so pixels can differ in the last bit between systems; the 1 MB source limit is not enforced; and the viewer shows every input at its default value. [`examples/`](examples/) has scenes from a five-line eclipse to a landscape.
+**Early development.** The engine runs the language in SPEC.md, reloads files live and renders on all cores. Each file is compiled once, when it loads, into a flat list of maths steps: every error is reported at load time, and checks that can never fire are removed. It differs from the spec in three ways: a custom shape's bounding box is the whole canvas, so `anchor` and `pin` are exact only for built-in shapes; the 1 MB source limit is not enforced; and the viewer shows every input at its default value. [`examples/`](examples/) has scenes from a five-line eclipse to a landscape.
 
 ## Running
 

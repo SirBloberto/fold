@@ -1,4 +1,5 @@
 use super::Op;
+use super::float;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Range {
@@ -162,11 +163,11 @@ pub fn of_op(op: Op, [a, b, c]: [Range; 3]) -> Range {
             ..Range::between(-1.0, 1.0).widen()
         },
         Op::Exp => Range {
-            lo: a.lo.exp().next_down().max(0.0),
+            lo: below(float::exp(a.lo)).max(0.0),
             hi: if a.hi <= 0.0 {
                 1.0
             } else {
-                a.hi.exp().next_up()
+                above(float::exp(a.hi))
             },
             nan: a.nan,
             minus_zero: false,
@@ -217,4 +218,12 @@ pub fn of_op(op: Op, [a, b, c]: [Range; 3]) -> Range {
         },
         Op::Pow | Op::ToLinear | Op::ToSrgb => Range::ANY,
     }
+}
+
+fn below(x: f32) -> f32 {
+    (0..4).fold(x, |x, _| x.next_down())
+}
+
+fn above(x: f32) -> f32 {
+    (0..4).fold(x, |x, _| x.next_up())
 }

@@ -1,4 +1,5 @@
 mod batch;
+mod float;
 mod op;
 mod optimise;
 mod range;
