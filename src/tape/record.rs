@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use super::batch::Batch;
 use super::optimise;
 use super::range::{self, Range};
 use super::{Op, Scalar, Step, Tape};
@@ -156,13 +157,13 @@ impl Tape {
         let pixel_inputs = per_pixel.len() as u32;
         let needed = optimise::keep_needed(recorder.steps, outputs, slots);
         let (frame, pixel) = optimise::split(needed, slots, pixel_inputs);
+        let batch = Batch::new(&pixel, pixel_inputs, outputs, slots);
         Ok(Tape {
             slots,
             pixel_inputs,
             constants: recorder.constants,
             frame,
-            pixel,
-            outputs,
+            batch,
         })
     }
 }

@@ -314,7 +314,7 @@ mod tests {
     use super::*;
     use crate::syntax::header::parse_header;
     use crate::syntax::parser::parse;
-    use crate::tape::Op;
+    use crate::tape::{LANES, Op};
 
     const SUN: &str = include_str!("../examples/sun.fld");
     const COOKBOOK: &str = include_str!("../docs/COOKBOOK.md");
@@ -684,25 +684,31 @@ mod tests {
         let (width, height) = (program.header.width as f32, program.header.height as f32);
         let size = maths::vec2(width, height);
         let prelude = Prelude::load(size).unwrap();
-        let mut slots = tape.slots();
+        let mut values = tape.slots();
         let spacing = (program.header.width.max(program.header.height) / 24).max(1) as usize;
         for time in [0.0, 1.3] {
-            tape.start_frame(&mut slots, &[time]);
+            tape.start_frame(&mut values, &[time]);
+            let mut lanes = tape.batch.prepare(&values);
             for row in (0..program.header.height).step_by(spacing) {
-                for col in (0..program.header.width).step_by(spacing) {
-                    let x = col as f32 + 0.5 - width / 2.0;
-                    let y = row as f32 + 0.5 - height / 2.0;
-                    let pixel = Pixel {
-                        pos: maths::vec2(x, y),
-                        time: Scalar::from(time),
-                        px: Scalar::from(1.0),
-                        size,
-                    };
-                    let want = run(&program, &prelude, pixel).expect(src).channels();
-                    let got = tape.run(&mut slots, &[x, y]);
-                    for (want, got) in want.iter().zip(got) {
-                        let want = want.known().unwrap();
-                        assert_eq!(want.to_bits(), got.to_bits(), "at ({x}, {y}): {src}");
+                let y = row as f32 + 0.5 - height / 2.0;
+                for first in (0..program.header.width as usize).step_by(LANES) {
+                    let x = std::array::from_fn(|i| (first + i) as f32 + 0.5 - width / 2.0);
+                    let got = tape.batch.run(&mut lanes, &[x, [y; LANES]]);
+                    let end = (first + LANES).min(program.header.width as usize);
+                    for col in (first..end).filter(|col| col % spacing == 0) {
+                        let x = x[col - first];
+                        let pixel = Pixel {
+                            pos: maths::vec2(x, y),
+                            time: Scalar::from(time),
+                            px: Scalar::from(1.0),
+                            size,
+                        };
+                        let want = run(&program, &prelude, pixel).expect(src).channels();
+                        for (want, got) in want.iter().zip(got) {
+                            let want = want.known().unwrap();
+                            let got = got[col - first];
+                            assert_eq!(want.to_bits(), got.to_bits(), "at ({x}, {y}): {src}");
+                        }
                     }
                 }
             }
@@ -741,7 +747,7 @@ mod tests {
     }
 
     fn count(tape: &Tape, op: Op) -> usize {
-        let steps = tape.frame.iter().chain(&tape.pixel);
+        let steps = tape.frame.iter().chain(&tape.batch.steps);
         steps.filter(|step| step.op == op).count()
     }
 
@@ -754,9 +760,7 @@ mod tests {
     #[test]
     fn a_solid_background_needs_no_steps() {
         let tape = tape_of(&file("draw FRAME |> fill(#101820)")).unwrap();
-        let constant = |slot: &u32| tape.constants.iter().any(|(at, _)| at == slot);
-        assert!(tape.outputs.iter().all(constant));
-        assert!(tape.frame.is_empty() && tape.pixel.is_empty());
+        assert!(tape.frame.is_empty() && tape.batch.steps.is_empty());
     }
 
     #[test]
@@ -768,7 +772,7 @@ mod tests {
     #[test]
     fn time_only_work_runs_once_per_frame() {
         let tape = tape_of(&file("draw #ffffff * (0.5 + 0.5 * sin(TIME))")).unwrap();
-        assert!(tape.pixel.is_empty());
+        assert!(tape.batch.steps.is_empty());
         assert_eq!(count(&tape, Op::Sin), 1);
     }
 
@@ -784,9 +788,9 @@ mod tests {
             tape.frame.len()
         );
         assert!(
-            tape.pixel.len() <= 29,
+            tape.batch.steps.len() <= 29,
             "sun.fld has {} pixel steps",
-            tape.pixel.len()
+            tape.batch.steps.len()
         );
     }
 }

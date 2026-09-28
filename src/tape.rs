@@ -1,9 +1,11 @@
+mod batch;
 mod op;
 mod optimise;
 mod range;
 mod record;
 mod scalar;
 
+pub use batch::{Batch, LANES};
 pub use op::Op;
 pub use range::Range;
 pub use scalar::Scalar;
@@ -21,8 +23,7 @@ pub struct Tape {
     pub pixel_inputs: u32,
     pub constants: Vec<(u32, f32)>,
     pub frame: Vec<Step>,
-    pub pixel: Vec<Step>,
-    pub outputs: [u32; 4],
+    pub batch: Batch,
 }
 
 impl Tape {
@@ -38,12 +39,6 @@ impl Tape {
         let first = self.pixel_inputs as usize;
         slots[first..first + inputs.len()].copy_from_slice(inputs);
         execute(&self.frame, slots);
-    }
-
-    pub fn run(&self, slots: &mut [f32], inputs: &[f32]) -> [f32; 4] {
-        slots[..inputs.len()].copy_from_slice(inputs);
-        execute(&self.pixel, slots);
-        self.outputs.map(|out| slots[out as usize])
     }
 }
 

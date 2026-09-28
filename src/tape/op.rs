@@ -25,6 +25,7 @@ pub enum Op {
 }
 
 impl Op {
+    #[inline(always)]
     pub fn eval(self, a: f32, b: f32, c: f32) -> f32 {
         match self {
             Op::Add => a + b,

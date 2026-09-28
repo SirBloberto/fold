@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use crate::tape::Tape;
+use crate::tape::{LANES, Tape};
 
 static THRESHOLDS: LazyLock<[f32; 255]> =
     LazyLock::new(|| std::array::from_fn(|k| to_linear((k as f64 + 0.5) / 255.0) as f32));
@@ -18,13 +18,19 @@ pub fn frame(tape: &Tape, buffer: &mut [u32], width: usize, height: usize, time:
 }
 
 fn rows(tape: &Tape, pixels: &mut [u32], first_row: usize, width: usize, height: usize, time: f32) {
-    let mut slots = tape.slots();
-    tape.start_frame(&mut slots, &[time]);
-    for (i, out) in pixels.iter_mut().enumerate() {
-        let x = (i % width) as f32 + 0.5 - width as f32 / 2.0;
-        let y = (first_row + i / width) as f32 + 0.5 - height as f32 / 2.0;
-        let [r, g, b, _] = tape.run(&mut slots, &[x, y]);
-        *out = to_u32(r, g, b);
+    let mut values = tape.slots();
+    tape.start_frame(&mut values, &[time]);
+    let mut lanes = tape.batch.prepare(&values);
+    for (row, line) in pixels.chunks_mut(width).enumerate() {
+        let y = (first_row + row) as f32 + 0.5 - height as f32 / 2.0;
+        for (chunk, out) in line.chunks_mut(LANES).enumerate() {
+            let first = chunk * LANES;
+            let x = std::array::from_fn(|i| (first + i) as f32 + 0.5 - width as f32 / 2.0);
+            let [r, g, b, _] = tape.batch.run(&mut lanes, &[x, [y; LANES]]);
+            for (i, pixel) in out.iter_mut().enumerate() {
+                *pixel = to_u32(r[i], g[i], b[i]);
+            }
+        }
     }
 }
 
