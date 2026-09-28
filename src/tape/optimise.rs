@@ -17,17 +17,3 @@ pub fn keep_needed(steps: Vec<Step>, outputs: [u32; 4], slots: u32) -> Vec<Step>
     kept.reverse();
     kept
 }
-
-pub fn split(steps: Vec<Step>, slots: u32, pixel_inputs: u32) -> (Vec<Step>, Vec<Step>) {
-    let mut varies: Vec<bool> = (0..slots).map(|slot| slot < pixel_inputs).collect();
-    let (mut frame, mut pixel) = (Vec::new(), Vec::new());
-    for step in steps {
-        if step.args.iter().any(|&arg| varies[arg as usize]) {
-            varies[step.out as usize] = true;
-            pixel.push(step);
-        } else {
-            frame.push(step);
-        }
-    }
-    (frame, pixel)
-}

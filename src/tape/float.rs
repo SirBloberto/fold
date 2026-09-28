@@ -182,6 +182,7 @@ fn scramble(mut bits: u32) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    use super::super::range::POW_SLACK;
     use super::*;
 
     fn ulps(got: f32, want: f64) -> u32 {
@@ -257,6 +258,24 @@ mod tests {
         }
         for x in sweep(-150.0, 0.0, 500_000) {
             assert!((0.0..=1.0).contains(&exp(x)), "exp({x})");
+        }
+        for y in [1.25f32, 1.5, 2.4, 1.0 / 2.4, 0.5, 3.0, -1.5, -0.7] {
+            for (lo, hi) in [(0.0, 4.0), (0.0, 1e6)] {
+                let mut extreme = pow(lo, y);
+                for x in sweep(lo, hi, 200_000) {
+                    let got = pow(x, y);
+                    if y > 0.0 {
+                        assert!(got >= extreme * (1.0 - POW_SLACK), "pow({x}, {y})");
+                    } else {
+                        assert!(got <= extreme * (1.0 + POW_SLACK), "pow({x}, {y})");
+                    }
+                    extreme = if y > 0.0 {
+                        extreme.max(got)
+                    } else {
+                        extreme.min(got)
+                    };
+                }
+            }
         }
         for x in unit_floats() {
             assert!((0.0..=1.0).contains(&to_linear(x)), "to_linear({x})");

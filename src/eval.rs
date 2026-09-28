@@ -9,7 +9,7 @@ use crate::syntax::ast::{Expr, ExprKind, Program, Stmt, StmtKind};
 use crate::syntax::lexer::lex;
 use crate::syntax::parser::parse_prelude;
 use crate::syntax::token::Pos;
-use crate::tape::{Range, Scalar, Tape};
+use crate::tape::{Range, Scalar, TIME, Tape, X, Y};
 use value::{Body, Closure, Shape, ShapeKind, Value};
 
 static PRELUDE: LazyLock<Vec<Stmt>> = LazyLock::new(|| {
@@ -58,12 +58,15 @@ pub fn compile(program: &Program, px: f32) -> Result<Tape, String> {
     let size = maths::vec2(width, height);
     let prelude = Prelude::load(size)?;
     let across = |length: f32| Range::between(px / 2.0 - length / 2.0, length / 2.0 - px / 2.0);
-    let per_pixel = [across(width), across(height)];
-    let per_frame = [Range::between(0.0, LONGEST_TIME)];
-    Tape::record(&per_pixel, &per_frame, |inputs| {
+    let inputs = [
+        across(width),
+        across(height),
+        Range::between(0.0, LONGEST_TIME),
+    ];
+    Tape::record(inputs, |inputs| {
         let pixel = Pixel {
-            pos: maths::vec2(inputs[0], inputs[1]),
-            time: inputs[2],
+            pos: maths::vec2(inputs[X], inputs[Y]),
+            time: inputs[TIME],
             px: Scalar::from(px),
             size,
         };
@@ -312,9 +315,10 @@ fn at(message: &str, pos: Pos) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::{self, Renderer};
     use crate::syntax::header::parse_header;
     use crate::syntax::parser::parse;
-    use crate::tape::{LANES, Op};
+    use crate::tape::{Kernel, Op, Step};
 
     const SUN: &str = include_str!("../examples/sun.fld");
     const COOKBOOK: &str = include_str!("../docs/COOKBOOK.md");
@@ -539,6 +543,8 @@ mod tests {
             ("#ff880066.bgra.a", 0.4),
             ("shade(#808080, 1).r", 1.0),
             ("shade(#808080, -1).r", 0.0),
+            ("shade(#000000, 0.3).r", 0.3),
+            ("shade(#ffffff, -0.3).r", 0.7),
             ("shade(#80808080, 1).a", 128.0 / 255.0),
         ]);
     }
@@ -681,35 +687,44 @@ mod tests {
     fn same_on_tape(src: &str) {
         let program = load(src).expect(src);
         let tape = compile(&program, 1.0).expect(src);
-        let (width, height) = (program.header.width as f32, program.header.height as f32);
-        let size = maths::vec2(width, height);
+        let (width, height) = (
+            program.header.width as usize,
+            program.header.height as usize,
+        );
+        let size = maths::vec2(width as f32, height as f32);
         let prelude = Prelude::load(size).unwrap();
-        let mut values = tape.slots();
-        let spacing = (program.header.width.max(program.header.height) / 24).max(1) as usize;
+        let spacing = (width.max(height) / 24).max(1);
+        let reference = |col: usize, row: usize, time: f32| {
+            let pixel = Pixel {
+                pos: maths::vec2(
+                    col as f32 + 0.5 - width as f32 / 2.0,
+                    row as f32 + 0.5 - height as f32 / 2.0,
+                ),
+                time: Scalar::from(time),
+                px: Scalar::from(1.0),
+                size,
+            };
+            run(&program, &prelude, pixel).expect(src).channels()
+        };
+        let mut renderer = Renderer::new(compile(&program, 1.0).unwrap(), width, height);
         for time in [0.0, 1.3] {
-            tape.start_frame(&mut values, &[time]);
-            let mut lanes = tape.batch.prepare(&values);
-            for row in (0..program.header.height).step_by(spacing) {
-                let y = row as f32 + 0.5 - height / 2.0;
-                for first in (0..program.header.width as usize).step_by(LANES) {
-                    let x = std::array::from_fn(|i| (first + i) as f32 + 0.5 - width / 2.0);
-                    let got = tape.batch.run(&mut lanes, &[x, [y; LANES]]);
-                    let end = (first + LANES).min(program.header.width as usize);
-                    for col in (first..end).filter(|col| col % spacing == 0) {
-                        let x = x[col - first];
-                        let pixel = Pixel {
-                            pos: maths::vec2(x, y),
-                            time: Scalar::from(time),
-                            px: Scalar::from(1.0),
-                            size,
-                        };
-                        let want = run(&program, &prelude, pixel).expect(src).channels();
-                        for (want, got) in want.iter().zip(got) {
-                            let want = want.known().unwrap();
-                            let got = got[col - first];
-                            assert_eq!(want.to_bits(), got.to_bits(), "at ({x}, {y}): {src}");
-                        }
-                    }
+            let wanted = |row: usize| row.is_multiple_of(spacing);
+            render::trace(&tape, width, height, time, wanted, |col, row, got| {
+                if !col.is_multiple_of(spacing) {
+                    return;
+                }
+                let want = reference(col, row, time);
+                for (want, got) in want.iter().zip(got) {
+                    let want = want.known().unwrap();
+                    assert_eq!(want.to_bits(), got.to_bits(), "at ({col}, {row}): {src}");
+                }
+            });
+            let pixels = renderer.frame(time).to_vec();
+            for row in (0..height).step_by(spacing) {
+                for col in (0..width).step_by(spacing) {
+                    let want = reference(col, row, time).map(|c| c.known().unwrap());
+                    let got = pixels[row * width + col];
+                    assert_eq!(byte_colour(want), got, "at ({col}, {row}): {src}");
                 }
             }
         }
@@ -747,20 +762,23 @@ mod tests {
     }
 
     fn count(tape: &Tape, op: Op) -> usize {
-        let steps = tape.frame.iter().chain(&tape.batch.steps);
-        steps.filter(|step| step.op == op).count()
+        tape.steps.iter().filter(|step| step.op == op).count()
     }
 
     #[test]
     fn constant_work_leaves_the_tape() {
-        let tape = tape_of(&file("let k = sin(1) * 20 + 3\ndraw #ffffff * k")).unwrap();
+        let tape = tape_of(&file(
+            "let k = sin(1) * 20 + 3
+draw #ffffff * k",
+        ))
+        .unwrap();
         assert_eq!(count(&tape, Op::Sin), 0);
     }
 
     #[test]
     fn a_solid_background_needs_no_steps() {
         let tape = tape_of(&file("draw FRAME |> fill(#101820)")).unwrap();
-        assert!(tape.frame.is_empty() && tape.batch.steps.is_empty());
+        assert!(tape.steps.is_empty());
     }
 
     #[test]
@@ -770,10 +788,21 @@ mod tests {
     }
 
     #[test]
-    fn time_only_work_runs_once_per_frame() {
-        let tape = tape_of(&file("draw #ffffff * (0.5 + 0.5 * sin(TIME))")).unwrap();
-        assert!(tape.batch.steps.is_empty());
-        assert_eq!(count(&tape, Op::Sin), 1);
+    fn work_runs_at_the_level_it_depends_on() {
+        let src = "draw #ffffff * (sin(TIME) + sin(POS.x) * cos(POS.y) * POS.x)";
+        let kernel = Kernel::new(&tape_of(&file(src)).unwrap());
+        let ops = |steps: &[Step]| steps.iter().map(|step| step.op).collect::<Vec<_>>();
+        assert_eq!(ops(&kernel.frame), [Op::Sin]);
+        assert_eq!(ops(&kernel.row), [Op::Cos]);
+        assert_eq!(ops(&kernel.batch.columns), [Op::Sin]);
+        assert!(!ops(&kernel.batch.pixel).contains(&Op::Sin));
+        assert!(kernel.changes);
+    }
+
+    #[test]
+    fn still_pictures_do_not_change() {
+        let kernel = Kernel::new(&tape_of(&file("draw circle(40) |> fill(#ffaa00)")).unwrap());
+        assert!(!kernel.changes);
     }
 
     #[test]
@@ -783,14 +812,9 @@ mod tests {
             assert_eq!(count(&tape, check), 0, "{check:?}");
         }
         assert!(
-            tape.frame.len() <= 4,
-            "sun.fld has {} frame steps",
-            tape.frame.len()
-        );
-        assert!(
-            tape.batch.steps.len() <= 29,
-            "sun.fld has {} pixel steps",
-            tape.batch.steps.len()
+            tape.steps.len() <= 33,
+            "sun.fld has {} steps",
+            tape.steps.len()
         );
     }
 }

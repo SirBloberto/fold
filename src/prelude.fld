@@ -17,9 +17,14 @@ func rotate(vec, amt) {
 }
 
 func shade(col, amt) {
-    let to = max(amt, 0)
-    let by = abs(amt)
-    return rgba(mix(col.r, to, by), mix(col.g, to, by), mix(col.b, to, by), col.a)
+    let up = max(amt, 0)
+    let down = max(-amt, 0)
+    return rgba(
+        mix(mix(col.r, 1, up), 0, down),
+        mix(mix(col.g, 1, up), 0, down),
+        mix(mix(col.b, 1, up), 0, down),
+        col.a
+    )
 }
 
 func fold(sh, fn) { return shape(pt => dist(sh, fn(pt))) }

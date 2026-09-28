@@ -52,9 +52,10 @@ scene.render(time, width, height) → premultiplied sRGB pixels
 
 ## 6. Optimisation
 Engines may optimise freely, provided the pixels are identical (§3):
-- evaluate parts that don't depend on `POS` once per frame;
+- evaluate each part once for everything it depends on: once per frame if it doesn't read `POS`, once per column if it reads only `POS.x`, and once per row if it reads only `POS.y`;
 - skip tiles that interval arithmetic proves are constant, using shape bounds;
 - prune shapes that cannot affect a tile;
+- keep tiles that don't depend on `TIME` from one frame to the next, until an input changes;
 - recognise common prelude transforms (`at`, `spin`, `around`) and handle them natively.
 
 ## 7. Conformance

@@ -1,17 +1,24 @@
 mod batch;
 mod float;
+mod kernel;
 mod op;
 mod optimise;
 mod range;
 mod record;
 mod scalar;
 
-pub use batch::{Batch, LANES};
+pub use batch::{LANES, Lanes};
+pub use kernel::{Kernel, Scratch};
 pub use op::Op;
 pub use range::Range;
 pub use scalar::Scalar;
 
-#[derive(Debug)]
+pub const X: usize = 0;
+pub const Y: usize = 1;
+pub const TIME: usize = 2;
+pub const INPUTS: usize = 3;
+
+#[derive(Clone, Copy, Debug)]
 pub struct Step {
     pub op: Op,
     pub args: [u32; 3],
@@ -20,27 +27,12 @@ pub struct Step {
 
 #[derive(Debug)]
 pub struct Tape {
+    pub inputs: [Range; INPUTS],
     pub slots: u32,
-    pub pixel_inputs: u32,
     pub constants: Vec<(u32, f32)>,
-    pub frame: Vec<Step>,
-    pub batch: Batch,
-}
-
-impl Tape {
-    pub fn slots(&self) -> Vec<f32> {
-        let mut slots = vec![0.0; self.slots as usize];
-        for &(slot, n) in &self.constants {
-            slots[slot as usize] = n;
-        }
-        slots
-    }
-
-    pub fn start_frame(&self, slots: &mut [f32], inputs: &[f32]) {
-        let first = self.pixel_inputs as usize;
-        slots[first..first + inputs.len()].copy_from_slice(inputs);
-        execute(&self.frame, slots);
-    }
+    pub steps: Vec<Step>,
+    pub outputs: [u32; 4],
+    pub ranges: [Range; 4],
 }
 
 fn execute(steps: &[Step], slots: &mut [f32]) {

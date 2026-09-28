@@ -20,7 +20,6 @@ fn main() {
 
     let width = live.program.header.width as usize;
     let height = live.program.header.height as usize;
-    let mut buffer = vec![0; width * height];
     let mut window = Window::new("Fold", width, height, WindowOptions::default())
         .expect("could not open window");
     window.set_target_fps(60);
@@ -32,11 +31,11 @@ fn main() {
 
         let time = start.elapsed().as_secs_f32();
         let frame = Instant::now();
-        render::frame(&live.tape, &mut buffer, width, height, time);
+        let pixels = live.renderer.frame(time);
         stats.record(frame.elapsed());
 
         window
-            .update_with_buffer(&buffer, width, height)
+            .update_with_buffer(pixels, width, height)
             .expect("could not update window");
     }
 }

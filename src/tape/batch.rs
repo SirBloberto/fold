@@ -1,4 +1,4 @@
-use super::{Op, Step};
+use super::{Op, Step, X};
 
 pub const LANES: usize = 64;
 
@@ -6,21 +6,29 @@ pub type Lanes = [f32; LANES];
 
 #[derive(Debug)]
 pub struct Batch {
-    pub steps: Vec<Step>,
+    pub columns: Vec<Step>,
+    pub pixel: Vec<Step>,
     pub rows: usize,
-    pub broadcast: Vec<(u32, u32)>,
+    pub fixed: Vec<(u32, u32)>,
+    pub by_row: Vec<(u32, u32)>,
     pub outputs: [u32; 4],
 }
 
 impl Batch {
-    pub fn new(pixel: &[Step], pixel_inputs: u32, outputs: [u32; 4], slots: u32) -> Batch {
-        let slots = slots as usize;
+    pub fn new(columns: &[Step], pixel: &[Step], outputs: [u32; 4], by_row: &[bool]) -> Batch {
+        let slots = by_row.len();
+        let steps: Vec<&Step> = columns.iter().chain(pixel).collect();
         let mut made_here = vec![false; slots];
         let mut last_use = vec![0; slots];
-        for (i, step) in pixel.iter().enumerate() {
+        for (i, step) in steps.iter().enumerate() {
             made_here[step.out as usize] = true;
             for arg in step.args {
                 last_use[arg as usize] = i;
+            }
+        }
+        for step in columns {
+            if last_use[step.out as usize] >= columns.len() {
+                last_use[step.out as usize] = usize::MAX;
             }
         }
         for out in outputs {
@@ -28,25 +36,27 @@ impl Batch {
         }
 
         let mut row_of: Vec<Option<u32>> = vec![None; slots];
-        let mut rows = 0;
-        for slot in 0..pixel_inputs as usize {
-            row_of[slot] = Some(rows);
-            rows += 1;
-        }
-        let mut broadcast = Vec::new();
-        let read = pixel.iter().flat_map(|step| step.args).chain(outputs);
+        row_of[X] = Some(0);
+        let mut rows = 1;
+        let (mut fixed, mut changing) = (Vec::new(), Vec::new());
+        let read = steps.iter().flat_map(|step| step.args).chain(outputs);
         for slot in read {
             let slot = slot as usize;
             if row_of[slot].is_none() && !made_here[slot] {
                 row_of[slot] = Some(rows);
-                broadcast.push((slot as u32, rows));
+                let list = if by_row[slot] {
+                    &mut changing
+                } else {
+                    &mut fixed
+                };
+                list.push((slot as u32, rows));
                 rows += 1;
             }
         }
 
         let mut free = Vec::new();
-        let mut steps = Vec::new();
-        for (i, step) in pixel.iter().enumerate() {
+        let mut placed = Vec::new();
+        for (i, step) in steps.iter().enumerate() {
             let args = step
                 .args
                 .map(|arg| row_of[arg as usize].expect("an argument has a row"));
@@ -62,38 +72,50 @@ impl Batch {
                 rows - 1
             });
             row_of[step.out as usize] = Some(out);
-            steps.push(Step {
+            placed.push(Step {
                 op: step.op,
                 args,
                 out,
             });
         }
 
+        let pixel = placed.split_off(columns.len());
         Batch {
-            steps,
+            columns: placed,
+            pixel,
             rows: rows as usize,
-            broadcast,
+            fixed,
+            by_row: changing,
             outputs: outputs.map(|out| row_of[out as usize].expect("an output has a row")),
         }
     }
 
-    pub fn prepare(&self, values: &[f32]) -> Vec<Lanes> {
-        let mut rows = vec![[0.0; LANES]; self.rows];
-        for &(slot, row) in &self.broadcast {
+    pub fn start(&self, rows: &mut Vec<Lanes>, values: &[f32], x: &Lanes) {
+        if rows.len() < self.rows {
+            rows.resize(self.rows, [0.0; LANES]);
+        }
+        rows[0] = *x;
+        for &(slot, row) in &self.fixed {
             rows[row as usize] = [values[slot as usize]; LANES];
         }
-        rows
+        execute(&self.columns, rows);
     }
 
-    pub fn run<'a>(&self, rows: &'a mut [Lanes], inputs: &[Lanes]) -> [&'a Lanes; 4] {
-        rows[..inputs.len()].copy_from_slice(inputs);
-        for step in &self.steps {
-            let [a, b, c] = step.args.map(|arg| arg as usize);
-            let result = apply(step.op, &rows[a], &rows[b], &rows[c]);
-            rows[step.out as usize] = result;
+    pub fn run<'a>(&self, rows: &'a mut [Lanes], values: &[f32]) -> [&'a Lanes; 4] {
+        for &(slot, row) in &self.by_row {
+            rows[row as usize] = [values[slot as usize]; LANES];
         }
+        execute(&self.pixel, rows);
         let rows: &'a [Lanes] = rows;
         self.outputs.map(|out| &rows[out as usize])
+    }
+}
+
+fn execute(steps: &[Step], rows: &mut [Lanes]) {
+    for step in steps {
+        let [a, b, c] = step.args.map(|arg| arg as usize);
+        let result = apply(step.op, &rows[a], &rows[b], &rows[c]);
+        rows[step.out as usize] = result;
     }
 }
 

@@ -59,6 +59,15 @@ impl Range {
         self.lo.is_infinite() || self.hi.is_infinite()
     }
 
+    pub fn within(self, other: Range) -> Range {
+        Range {
+            lo: self.lo.max(other.lo),
+            hi: self.hi.min(other.hi),
+            nan: self.nan && other.nan,
+            minus_zero: self.minus_zero && other.minus_zero,
+        }
+    }
+
     fn widen(self) -> Range {
         Range {
             lo: self.lo.next_down(),
@@ -88,6 +97,13 @@ pub fn square(a: Range) -> Range {
     Range {
         nan: a.nan,
         ..Range::between(near * near, far * far)
+    }
+}
+
+pub fn fraction(a: Range) -> Range {
+    Range {
+        nan: !a.is_finite(),
+        ..Range::between(0.0, 1.0)
     }
 }
 
@@ -216,9 +232,23 @@ pub fn of_op(op: Op, [a, b, c]: [Range; 3]) -> Range {
             nan: b.nan || c.nan,
             minus_zero: b.minus_zero || c.minus_zero,
         },
+        Op::Pow if a.lo >= 0.0 && !a.nan && !a.minus_zero => match b.single() {
+            Some(y) => {
+                let (near, far) = if y >= 0.0 { (a.lo, a.hi) } else { (a.hi, a.lo) };
+                Range {
+                    lo: (float::pow(near, y) * (1.0 - POW_SLACK)).max(0.0),
+                    hi: float::pow(far, y) * (1.0 + POW_SLACK),
+                    nan: false,
+                    minus_zero: false,
+                }
+            }
+            None => Range::ANY,
+        },
         Op::Pow | Op::ToLinear | Op::ToSrgb => Range::ANY,
     }
 }
+
+pub const POW_SLACK: f32 = 1.0 / 4096.0;
 
 fn below(x: f32) -> f32 {
     (0..4).fold(x, |x, _| x.next_down())
