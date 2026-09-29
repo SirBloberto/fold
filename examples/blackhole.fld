@@ -1,0 +1,97 @@
+~fold v1 960x540
+
+input tilt: 0.06..0.3 = 0.12
+input speed: 0..3 = 1
+
+let hub = vec2(0, 0)
+let hole = 70
+let t = TIME * speed
+
+func ring_dist(pt, centre, lo, hi, squash) {
+    let q = pt - centre
+    let r = length(vec2(q.x, q.y / squash))
+    let slope = length(vec2(q.x, q.y / (squash * squash))) / (r + 0.01)
+    return max(lo - r, r - hi) / max(slope, 1)
+}
+
+func ring(centre, lo, hi, squash) {
+    return shape(pt => ring_dist(pt, centre, lo, hi, squash))
+}
+
+func orbit_dist(pt, radius, count, pace, size) {
+    let q = pt - hub
+    let plane = vec2(q.x, q.y / tilt)
+    let step = TAU / count
+    let turn = t * pace
+    let nearest = floor((angle(plane) - turn) / step + 0.5) * step + turn
+    let centre = vec2(cos(nearest), sin(nearest) * tilt) * radius
+    return length(q - centre) - size
+}
+
+func halo(radius) {
+    return circle(radius) |> at(hub.x, hub.y)
+}
+
+func pulse(radius, lag) {
+    return halo(radius + 7 * sin(t * 1.4 - lag))
+}
+
+let rho = length(POS - hub)
+let sky = mix(#0a1430, #03050d, smoothstep(0, 560, rho))
+let cell = vec2(floor(POS.x / 3), floor(POS.y / 3))
+let rate = 0.4 + 2.6 * hash(cell + vec2(17, 3))
+let blink = smoothstep(-0.4, 0.9, sin(TIME * rate + hash(cell) * 50))
+let stars = smoothstep(0.994, 1, hash(cell)) * (0.15 + 0.85 * blink) * smoothstep(250, 330, rho)
+
+let above = shape(pt => pt.y - hub.y)
+let under = shape(pt => hub.y - pt.y)
+
+let waves = rect(1.5, 2000) |> fold(pt => vec2(mod(length(pt - hub) - t * 24, 120) - 60, 0))
+let inner_dust = shape(pt => orbit_dist(pt, 262, 16, 0.8, 2.4))
+let outer_dust = shape(pt => orbit_dist(pt, 318, 22, 0.5, 1.8))
+
+let offset = POS - hub
+let spread = length(vec2(offset.x, offset.y / tilt))
+func fbm(pt) {
+    return noise(pt) * 0.6 + noise(pt * 2.1 + vec2(17, 3)) * 0.3 + noise(pt * 4.3 + vec2(5, 29)) * 0.1
+}
+
+func gas(r, turn) {
+    let wobble = fbm(vec2((turn - t * 0.35) * 2, r * 0.03))
+    let lane = clamp(sin(r * 0.13 + wobble * 6) * 5, 0, 1)
+    let zone = r + (wobble - 0.5) * 30
+    let inner = mix(#a8d0f5, #f2faff, lane)
+    let middle = mix(#5a8cd0, #a8d0f5, lane)
+    let outer = mix(#34649f, #5f93d6, lane)
+    let tone = mix(mix(inner, middle, clamp((zone - 128) * 0.5, 0, 1)), outer, clamp((zone - 180) * 0.5, 0, 1))
+    return tone * (1 - clamp((r - 224) * 0.25, 0, 1))
+}
+
+let disk = ring(hub, 80, 228, tilt) |> fill(gas(spread, atan2(-offset.x, offset.y / tilt)))
+let lensed = 80 + (rho - hole * 1.1) / (hole * 0.34) * 148
+let arch = intersect(circle(hole * 1.44) |> at(hub.x, hub.y) |> subtract(halo(hole * 1.1)), above)
+
+let drift = vec2(-340 + 45 * sin(TIME * 0.07), -160 + 14 * sin(TIME * 0.05 + 1))
+let planet = circle(20) |> at(drift.x, drift.y)
+let moon = circle(9) |> at(330 + 20 * sin(TIME * 0.09), 150)
+
+draw FRAME |> fill(sky)
+draw #ffffff * stars
+draw waves |> fill(#9fd0ff * (0.1 * smoothstep(640, 200, rho)))
+draw planet |> fill(#2b4f86)
+draw intersect(planet, planet |> at(7, 6)) |> fill(#6f9fd8)
+draw moon |> fill(#1c355e)
+draw intersect(moon, moon |> at(-4, -3)) |> fill(#8fb8e8)
+draw pulse(280, 2.4) |> fill(#0e1c40)
+draw pulse(205, 1.6) |> fill(#152c58)
+draw pulse(150, 0.8) |> fill(#1e4279)
+draw pulse(112, 0) |> fill(#2b5e9e)
+draw intersect(outer_dust, above) |> fill(#4f7fbf)
+draw intersect(inner_dust, above) |> fill(#7fb0e6)
+draw arch |> fill(gas(lensed, atan2(offset.x, -offset.y)))
+draw disk * cover(above)
+draw halo(hole) |> fill(#02040a)
+draw halo(hole * 1.03) |> outline(2) |> fill(#ffffff)
+draw disk * cover(under)
+draw intersect(inner_dust, under) |> fill(#cfe8ff)
+draw intersect(outer_dust, under) |> fill(#9fc6f2)

@@ -1,0 +1,4 @@
+~fold v1 96x96
+draw FRAME |> fill(#1b2233)
+draw circle(26) |> at(-10, -6) |> fill(#ffaa00)
+draw circle(26) |> at(10, 6) |> fill(#4fb3ffc0)

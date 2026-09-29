@@ -1,0 +1,3 @@
+tests/conformance/*.fld text eol=lf
+tests/conformance/*.txt text eol=lf
+tests/conformance/*.png binary

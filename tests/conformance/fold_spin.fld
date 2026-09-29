@@ -1,0 +1,3 @@
+~fold v1 96x96
+draw FRAME |> fill(#1b2233)
+draw rect(64, 12) |> spin(30 * DEG) |> fill(#4fb3ff)

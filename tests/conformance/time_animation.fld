@@ -1,0 +1,4 @@
+~fold v1 96x96
+draw FRAME |> fill(#1b2233)
+// time 1.5
+draw circle(12) |> at(sin(TIME) * 30, cos(TIME * 2) * 20) |> fill(#ffaa00)

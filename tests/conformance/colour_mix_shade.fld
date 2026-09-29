@@ -1,0 +1,8 @@
+~fold v1 96x96
+draw FRAME |> fill(#1b2233)
+let base = #3366ff
+draw rect(18, 60) |> at(-36, 0) |> fill(shade(base, -0.6))
+draw rect(18, 60) |> at(-18, 0) |> fill(shade(base, -0.3))
+draw rect(18, 60) |> fill(base)
+draw rect(18, 60) |> at(18, 0) |> fill(shade(base, 0.3))
+draw rect(18, 60) |> at(36, 0) |> fill(mix(base, #ffaa00, 0.5))

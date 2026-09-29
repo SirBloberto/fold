@@ -1,0 +1,42 @@
+~fold v1 960x540
+
+input turn: 0..2 = 1
+
+let t = TIME * turn
+let rho = length(POS)
+let spoke = angle(POS)
+
+func leaf(length_of, width) {
+    let r = (length_of * length_of / 4 + width * width / 4) / width
+    let off = r - width / 2
+    return intersect(circle(r) |> at(0, off), circle(r) |> at(0, -off))
+}
+
+let dots = circle(4) |> at(228, 0) |> around(36) |> spin(-t * 0.05)
+let wave = 0.5 + 0.5 * sin(spoke * 6 - t * 1.5)
+let beads = circle(2.5) |> at(250, 0) |> around(72) |> spin(t * 0.03)
+
+let petals = leaf(70, 30) |> at(160, 0) |> around(12) |> spin(t * 0.08)
+let veins = leaf(46, 12) |> at(160, 0) |> around(12) |> spin(t * 0.08)
+let hooks = subtract(circle(15), circle(15) |> at(6, -5)) |> at(112, 0) |> around(10) |> spin(-t * 0.12)
+let star = shape(pt => max(abs(pt.y) - (90 - pt.x) * 0.16, -pt.x)) |> around(8) |> spin(t * 0.2)
+let gems = circle(6) |> at(64, 0) |> around(8) |> spin(t * 0.2 + 22.5 * DEG)
+let rosette = circle(20 + 3 * sin(t * 1.2)) |> at(26, 0) |> around(6) |> spin(-t * 0.3)
+
+draw FRAME |> fill(mix(#1d1840, #0b0a1c, smoothstep(0, 520, rho)))
+draw circle(300) |> fill(#241f52)
+draw circle(236) |> fill(#2c2763)
+draw beads |> fill(#8f86d8)
+draw dots |> fill(mix(#5b4fb3, #ffd27a, wave))
+draw circle(200) |> fill(#352f78)
+draw circle(200) |> outline(3) |> fill(#ffd27a)
+draw petals |> fill(#2fb3a8)
+draw veins |> fill(#a8f0dd)
+draw circle(132) |> fill(#1d1840)
+draw hooks |> fill(#ff7a6b)
+draw circle(96) |> outline(2) |> fill(#ffd27a)
+draw star |> fill(#ffd27a)
+draw gems |> fill(#ff7a6b)
+draw rosette |> fill(#2fb3a8 * 0.85)
+draw circle(18) |> fill(#fff3dc)
+draw circle(8) |> fill(#ff7a6b)

@@ -1,0 +1,71 @@
+~fold v1 960x540
+
+input mist: 0..1 = 0.6
+
+let moon_at = vec2(250, -150)
+
+func tier(q, w, h) {
+    let side = (abs(q.x) * h - w / 2 * (q.y + h)) / sqrt(h * h + w * w / 4)
+    return max(side, q.y)
+}
+
+func pine(q, size) {
+    let low = tier(q, size * 0.9, size * 0.6)
+    let middle = tier(q + vec2(0, size * 0.32), size * 0.68, size * 0.5)
+    let top = tier(q + vec2(0, size * 0.6), size * 0.44, size * 0.45)
+    let trunk = max(abs(q.x) - size * 0.05, abs(q.y - size * 0.06) - size * 0.08)
+    return min(min(min(low, middle), top), trunk)
+}
+
+func tree_at(pt, cell, spacing, base, size, seed, sway) {
+    let h = hash(vec2(cell, seed))
+    let x = (cell + 0.5 + (hash(vec2(cell, seed + 9)) - 0.5) * 0.6) * spacing
+    let height = size * (0.65 + 0.7 * h)
+    let lean = sway * sin(TIME * 0.9 + cell * 1.7) * (base - pt.y) / height
+    return pine(pt - vec2(x + lean, base + 4), height)
+}
+
+func row_dist(pt, spacing, base, size, seed, sway) {
+    let cell = floor(pt.x / spacing)
+    let here = tree_at(pt, cell, spacing, base, size, seed, sway)
+    let left = tree_at(pt, cell - 1, spacing, base, size, seed, sway)
+    let right = tree_at(pt, cell + 1, spacing, base, size, seed, sway)
+    let ground = base - 6 + noise(vec2(pt.x / 90, seed)) * 8 - pt.y
+    return min(min(min(here, left), right), ground)
+}
+
+func forest(spacing, base, size, seed, sway) {
+    return shape(pt => row_dist(pt, spacing, base, size, seed, sway))
+}
+
+func fog(base, amount) {
+    let drift = noise(vec2(POS.x / 160 + TIME * 0.05, base)) * 18
+    return #d6e6e4 * (amount * mist * smoothstep(base - 70 + drift, base + 10, POS.y))
+}
+
+let sky = mix(#7fa3a6, #10202f, smoothstep(160, -270, POS.y))
+let cell = vec2(floor(POS.x / 3), floor(POS.y / 3))
+let blink = smoothstep(-0.3, 0.9, sin(TIME * (0.5 + 2 * hash(cell + vec2(3, 1))) + hash(cell) * 40))
+let stars = smoothstep(0.995, 1, hash(cell)) * blink * smoothstep(-40, -200, POS.y)
+
+let spot = vec2(floor(POS.x / 40), floor(POS.y / 40))
+let wander = vec2(sin(TIME * 0.7 + hash(spot) * 20), cos(TIME * 0.5 + hash(spot) * 31)) * 10
+let centre = (spot + vec2(0.5, 0.5)) * 40 + wander
+let flicker = smoothstep(0.3, 1, sin(TIME * (1.2 + hash(spot + vec2(5, 5))) + hash(spot) * 60))
+let fireflies = smoothstep(0.82, 1, hash(spot + vec2(11, 4))) * flicker *
+    exp(-length(POS - centre) / 2.4) * smoothstep(100, 180, POS.y)
+
+draw FRAME |> fill(sky)
+draw #ffffff * stars
+draw circle(170) |> at(moon_at.x, moon_at.y) |> fill(#f4ecd8 * 0.025)
+draw circle(115) |> at(moon_at.x, moon_at.y) |> fill(#f4ecd8 * 0.035)
+draw circle(78) |> at(moon_at.x, moon_at.y) |> fill(#f4ecd8 * 0.05)
+draw circle(52) |> at(moon_at.x, moon_at.y) |> fill(#f4ecd8)
+draw forest(56, 60, 80, 1, 0) |> fill(#6e9196)
+draw fog(60, 0.5)
+draw forest(50, 120, 105, 2, 0) |> fill(#4b6d77)
+draw fog(120, 0.45)
+draw forest(48, 190, 130, 3, 1.5) |> fill(#2d4855)
+draw fog(190, 0.35)
+draw forest(80, 280, 170, 4, 3) |> fill(#122430)
+draw #ffe29a * clamp(fireflies * 1.6, 0, 1)

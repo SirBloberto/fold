@@ -59,5 +59,11 @@ Engines may optimise freely, provided the pixels are identical (§3):
 - recognise common prelude transforms (`at`, `spin`, `around`) and handle them natively.
 
 ## 7. Conformance
-The test suite is a set of `.fld` files, each with an expected PNG rendered by the reference engine at a fixed size, time and inputs. There is one test for every language feature and every load error. A back end conforms when it passes every test at its level (§3).
+The test suite is the folder `tests/conformance`. It holds one small `.fld` file for every language feature and every load error, each with a reference beside it:
+- a file that loads has a `.png` of the reference engine's pixels, rendered at the header's size with every input at its default;
+- a file that fails to load has a `.txt` holding the exact error message.
+
+A file renders at `TIME` 0 unless a line `// time <seconds>` gives another time. A back end conforms when it passes every test at its level (§3): the reference engine matches every PNG exactly, and other back ends match it to within 1/255 per channel.
+
+The reference engine's runner is `cargo test --test conformance`. When a change is meant to alter pixels or messages, `FOLD_BLESS=1 cargo test --test conformance` rewrites the references, which are then checked by eye before they are committed.
 

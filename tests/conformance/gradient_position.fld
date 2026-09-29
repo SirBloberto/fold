@@ -1,0 +1,4 @@
+~fold v1 96x96
+draw FRAME |> fill(#1b2233)
+draw mix(#101830, #ffaa00, smoothstep(-48, 48, POS.x))
+draw #ffffff * (0.5 * smoothstep(40, -40, POS.y))

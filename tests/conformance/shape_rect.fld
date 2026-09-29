@@ -1,0 +1,3 @@
+~fold v1 96x96
+draw FRAME |> fill(#1b2233)
+draw rect(60, 30) |> fill(#4fb3ff)

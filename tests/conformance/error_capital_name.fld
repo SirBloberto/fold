@@ -1,0 +1,3 @@
+~fold v1 96x96
+let TAU = 3
+draw #ffffff

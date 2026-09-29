@@ -1,0 +1,4 @@
+~fold v1 96x96
+let a = 1
+let a = 2
+draw #ffffff * a

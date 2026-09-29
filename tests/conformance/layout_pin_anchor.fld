@@ -1,0 +1,5 @@
+~fold v1 96x96
+draw FRAME |> fill(#1b2233)
+let box = rect(30, 20)
+draw box |> pin(TOP_LEFT, anchor(FRAME, TOP_LEFT) + vec2(6, 6)) |> fill(#ffaa00)
+draw circle(8) |> pin(LEFT, anchor(box, RIGHT) + vec2(4, 0)) |> fill(#4fb3ff)

@@ -1,0 +1,2 @@
+~fold v1 96x96
+draw sphere(10) |> fill(#ffffff)

@@ -1,0 +1,7 @@
+~fold v1 96x96
+draw FRAME |> fill(#1b2233)
+let a = circle(14) |> at(-8, 0)
+let b = circle(14) |> at(8, 0)
+draw union(a, b) |> at(0, -28) |> fill(#ffaa00)
+draw intersect(a, b) |> fill(#4fb3ff)
+draw subtract(a, b) |> at(0, 28) |> fill(#ff6688)

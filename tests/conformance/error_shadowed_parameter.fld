@@ -1,0 +1,4 @@
+~fold v1 96x96
+let r = 10
+func big(r) { return r * 2 }
+draw circle(big(r)) |> fill(#ffffff)

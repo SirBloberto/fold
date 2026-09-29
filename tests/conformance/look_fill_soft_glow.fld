@@ -1,0 +1,5 @@
+~fold v1 96x96
+draw FRAME |> fill(#1b2233)
+draw circle(9) |> at(-28, 0) |> fill(#ffaa00)
+draw circle(9) |> soft(#ffaa00, 5)
+draw circle(9) |> at(28, 0) |> glow(#ffaa00, 6)

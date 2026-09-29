@@ -1,0 +1,4 @@
+~fold v1 96x96
+draw FRAME |> fill(#1b2233)
+draw circle(SIZE.x / 4) |> outline(PX * 2) |> fill(#ffffff)
+draw rect(TAU * 4, 4) |> spin(90 * DEG) |> fill(#ffaa00)

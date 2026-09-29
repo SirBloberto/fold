@@ -1,9 +1,6 @@
 use std::time::{Duration, Instant, SystemTime};
 
-use crate::eval;
-use crate::render::Renderer;
-use crate::syntax;
-use crate::syntax::ast::Program;
+use fold::Picture;
 
 const FRAME_BUDGET: Duration = Duration::from_micros(16_667);
 
@@ -49,19 +46,17 @@ impl Stats {
 
 pub struct Live {
     pub path: String,
-    pub program: Program,
-    pub renderer: Renderer,
+    pub picture: Picture,
     modified: Option<SystemTime>,
 }
 
 impl Live {
     pub fn open(path: String) -> Result<Live, String> {
-        let (program, renderer) = load(&path)?;
+        let picture = load(&path)?;
         Ok(Live {
             modified: modified(&path),
             path,
-            program,
-            renderer,
+            picture,
         })
     }
 
@@ -73,12 +68,14 @@ impl Live {
         self.modified = now;
 
         match load(&self.path) {
-            Ok((program, _)) if program.header != self.program.header => {
-                eprintln!("{}: restart to change the header", self.path);
+            Ok(picture)
+                if (picture.width(), picture.height())
+                    != (self.picture.width(), self.picture.height()) =>
+            {
+                eprintln!("{}: restart to change the size", self.path);
             }
-            Ok((program, renderer)) => {
-                self.program = program;
-                self.renderer = renderer;
+            Ok(picture) => {
+                self.picture = picture;
                 println!("{}: reloaded", self.path);
             }
             Err(e) => eprintln!("{}: {e}", self.path),
@@ -86,15 +83,9 @@ impl Live {
     }
 }
 
-fn load(path: &str) -> Result<(Program, Renderer), String> {
-    let src = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let (header, rest) = syntax::header::parse_header(&src)?;
-    let tokens = syntax::lexer::lex(rest, 2)?;
-    let program = syntax::parser::parse(header, tokens)?;
-    let tape = eval::compile(&program, 1.0)?;
-    let (width, height) = (program.header.width, program.header.height);
-    let renderer = Renderer::new(tape, width as usize, height as usize);
-    Ok((program, renderer))
+fn load(path: &str) -> Result<Picture, String> {
+    let source = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    fold::load(&source)
 }
 
 fn modified(path: &str) -> Option<SystemTime> {

@@ -1,0 +1,3 @@
+~fold v1 96x96
+func f(x) { return f(x) }
+draw #ffffff * f(1)

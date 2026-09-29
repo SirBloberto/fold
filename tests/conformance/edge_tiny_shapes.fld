@@ -1,0 +1,4 @@
+~fold v1 96x96
+draw FRAME |> fill(#1b2233)
+draw circle(0.4) |> repeat(8, 8) |> fill(#ffffff)
+draw rect(96, 0.5) |> fill(#ffaa00)

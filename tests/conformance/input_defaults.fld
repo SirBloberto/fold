@@ -1,0 +1,5 @@
+~fold v1 96x96
+draw FRAME |> fill(#1b2233)
+input size: 10..40 = 25
+input tint = #3366ff
+draw circle(size) |> fill(tint)

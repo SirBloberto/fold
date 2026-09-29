@@ -1,0 +1,3 @@
+~fold v1 96x96
+draw FRAME |> fill(#1b2233)
+draw invert(circle(30)) |> fill(#ff6688)

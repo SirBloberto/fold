@@ -1,0 +1,63 @@
+~fold v1 960x540
+
+let horizon = 70
+let lamp = vec2(250, -92)
+let side = cos(TIME * 0.8)
+let facing = 1 - abs(side)
+let pointing = side / (abs(side) + 0.001)
+
+func waves(base, radius, pace, shift) {
+    let crests = circle(radius) |> repeat(radius * 2.6, 10000) |> at(TIME * pace + shift, base)
+    return union(crests, rect(2000, 600) |> at(0, base + 300))
+}
+
+func bird(x, y, flap) {
+    let left = segment(vec2(-7, -3 + flap * 4), vec2(0, 1))
+    let right = segment(vec2(0, 1), vec2(7, -3 + flap * 4))
+    return union(left, right) |> grow(0.8) |> at(x, y)
+}
+
+let sky = mix(#2c4e70, #0b1626, smoothstep(horizon, -270, POS.y))
+let cell = vec2(floor(POS.x / 3), floor(POS.y / 3))
+let blink = smoothstep(-0.3, 0.9, sin(TIME * (0.5 + 2 * hash(cell + vec2(3, 1))) + hash(cell) * 40))
+let stars = smoothstep(0.994, 1, hash(cell)) * blink * smoothstep(20, -150, POS.y)
+
+func beam_dist(pt) {
+    let u = (pt.x - lamp.x) * pointing
+    return max(abs(pt.y - lamp.y) - 3 - u * 0.06, max(-u, u - 760 * abs(side)))
+}
+
+let beam = shape(pt => beam_dist(pt))
+let reach = 1 - smoothstep(0, 760 * abs(side) + 1, abs(POS.x - lamp.x))
+
+let cliff = rounded_rect(200, 70, 20) |> at(250, 80)
+let rock = smooth_union(smooth_union(cliff, circle(40) |> at(222, 48), 18), circle(30) |> at(290, 58), 14)
+let tower = shape(pt => max(abs(pt.x - 250) - (13 + (pt.y + 60) * 0.1), abs(pt.y + 20) - 58))
+let stripes = rect(2000, 13) |> repeat(1, 26) |> at(0, -8)
+let cabin = rect(26, 16) |> at(250, -90)
+let roof = shape(pt => max((abs(pt.x - 250) * 1.2 - (pt.y + 122)) * 0.64, pt.y + 99))
+
+let ripple = sin(POS.y * 0.7 - TIME * 2.4) * sin(POS.y * 0.11 + TIME)
+let spread = 6 + (POS.y - horizon) * 0.3
+let trail = (1 - smoothstep(spread * 0.2, spread, abs(POS.x - lamp.x + ripple * 6))) * smoothstep(horizon, horizon + 20, POS.y)
+
+draw FRAME |> fill(sky)
+draw #ffffff * stars
+draw subtract(circle(26), circle(26) |> at(-10, -6)) |> at(-330, -170) |> fill(#e9eef2)
+draw beam |> fill(#fff6d8 * (0.28 * reach))
+draw rect(2000, 400) |> at(0, horizon + 200) |> fill(#1d3a58)
+draw waves(horizon + 8, 10, 6, 0) |> fill(#23466a)
+draw waves(horizon + 30, 14, 10, 7) |> fill(#1b3a5a)
+draw #fff3c4 * (trail * (0.2 + 0.15 * ripple) * (0.3 + 0.7 * facing))
+draw rock |> fill(#0f1f30)
+draw intersect(tower, invert(stripes)) |> fill(#e8e2d4)
+draw intersect(tower, stripes) |> fill(#c4473f)
+draw cabin |> fill(#1a2a3a)
+draw circle(7) |> at(lamp.x, lamp.y) |> glow(#fff3c4, 4 + 14 * facing * facing)
+draw circle(5) |> at(lamp.x, lamp.y) |> fill(#fff8e0)
+draw roof |> fill(#c4473f)
+draw waves(horizon + 70, 20, 16, 3) |> fill(#132c46)
+draw waves(horizon + 125, 28, 24, 11) |> fill(#0c1f33)
+draw waves(horizon + 185, 38, 34, 5) |> fill(#081626)
+draw bird(-120 + mod(TIME * 18, 900) - 450, -120, sin(TIME * 6)) |> fill(#0b1626)
+draw bird(-150 + mod(TIME * 18, 900) - 450, -104, sin(TIME * 6 + 1.4)) |> fill(#0b1626)

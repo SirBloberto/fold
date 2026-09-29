@@ -1,0 +1,4 @@
+~fold v1 96x96
+draw FRAME |> fill(#1b2233)
+draw #ffffff * noise(POS / 8)
+draw #ff6688 * smoothstep(0.9, 1, hash(vec2(floor(POS.x / 6), floor(POS.y / 6))))

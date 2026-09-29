@@ -1,0 +1,4 @@
+~fold v1 96x96
+draw FRAME |> fill(#1b2233)
+draw circle(20) |> grow(8) |> outline(3) |> fill(#4fb3ff)
+draw circle(10) |> grow(-4) |> fill(#ffaa00)

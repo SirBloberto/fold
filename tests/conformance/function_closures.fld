@@ -1,0 +1,9 @@
+~fold v1 96x96
+draw FRAME |> fill(#1b2233)
+let k = 3
+func ring(r, w) {
+    let inner = r - w
+    return shape(pt => max(length(pt) - r, inner - length(pt)))
+}
+let scaled = x => x * k
+draw ring(scaled(10), 6) |> fill(#9be27a)

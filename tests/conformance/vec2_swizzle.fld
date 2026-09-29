@@ -1,0 +1,5 @@
+~fold v1 96x96
+draw FRAME |> fill(#1b2233)
+let v = vec2(20, -10)
+draw circle(8) |> at(v.x, v.y) |> fill(#ffaa00)
+draw circle(8) |> at(v.yx.x, v.yx.y) |> fill(#4fb3ff)

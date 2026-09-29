@@ -1,0 +1,27 @@
+~fold v1 960x540
+
+input gap: 4..16 = 6
+
+let one = vec2(cos(TIME * 0.31), sin(TIME * 0.43)) * vec2(300, 150)
+let two = vec2(cos(TIME * 0.27 + 2), sin(TIME * 0.37 + 4)) * vec2(280, 160)
+
+func wave(pt) {
+    let a = sin(length(pt - one) * 0.032 - TIME * 1.6)
+    let b = sin(length(pt - two) * 0.032 - TIME * 1.9)
+    return 0.5 + 0.25 * (a + b)
+}
+
+func centre_of(pt) {
+    return vec2(floor(pt.x / gap) + 0.5, floor(pt.y / gap) + 0.5) * gap
+}
+
+func dot_dist(pt) {
+    let centre = centre_of(pt)
+    return length(pt - centre) - gap * (0.1 + 0.36 * wave(centre))
+}
+
+let level = wave(centre_of(POS))
+let dots = shape(pt => dot_dist(pt))
+
+draw FRAME |> fill(#0e1226)
+draw dots |> fill(mix(mix(#27407a, #3fb8b0, smoothstep(0.15, 0.6, level)), #fff0c8, smoothstep(0.7, 1, level)))
