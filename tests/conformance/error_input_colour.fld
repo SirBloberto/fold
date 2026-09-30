@@ -1,0 +1,3 @@
+~fold v1 96x96
+input tint = #ffffff * (POS.x / 96)
+draw tint

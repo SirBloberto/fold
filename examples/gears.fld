@@ -1,0 +1,71 @@
+~fold v1 960x540
+
+input speed: 0..2 = 0.6
+
+let module = 8
+let half_turn = TAU / 2
+
+func radius(n) { return n * module / 2 }
+
+func mesh(towards, turned, from, to) {
+    return towards + half_turn + (towards - turned) * from / to - half_turn / to
+}
+
+func toward(at, towards, from, to) {
+    return at + vec2(cos(towards), sin(towards)) * (radius(from) + radius(to))
+}
+
+func gear(n, centre, turned) {
+    let r = radius(n)
+    let tooth = rounded_rect(2.3 * module, 1.75 * module, 0.5 * module) |> at(r - 0.1 * module, 0) |> around(n)
+    let body = union(circle(r - 1.2 * module), tooth)
+    let holes = circle(r * 0.17) |> at(r * 0.56, 0) |> around(6)
+    let cut = subtract(subtract(body, circle(max(r * 0.12, 6))), holes)
+    let placed = cut |> spin(turned) |> at(centre.x, centre.y)
+    return shape(pt => max(dist(placed, pt), length(pt - centre) - r - module * 1.4))
+}
+
+func dashed_dist(q, r, count) {
+    let along = (abs(fract(angle(q) * count / TAU) - 0.5) - 0.22) * TAU * r / count
+    return max(abs(length(q) - r) - 0.7, along)
+}
+
+func dashed(r, centre, count) {
+    return shape(pt => dashed_dist(pt - centre, r, count))
+}
+
+func centre_mark(centre) {
+    let cross = union(segment(vec2(-9, 0), vec2(9, 0)), segment(vec2(0, -9), vec2(0, 9)))
+    return cross |> at(centre.x, centre.y)
+}
+
+let turn = TIME * speed
+let a_at = vec2(-250, 60)
+let b_at = toward(a_at, -0.6, 28, 12)
+let c_at = toward(b_at, 0.3, 12, 20)
+let d_at = toward(c_at, -0.5, 20, 26)
+let e_at = toward(d_at, 0.9, 26, 14)
+let b_turn = mesh(-0.6, turn, 28, 12)
+let c_turn = mesh(0.3, b_turn, 12, 20)
+let d_turn = mesh(-0.5, c_turn, 20, 26)
+let e_turn = mesh(0.9, d_turn, 26, 14)
+
+let all = union(union(union(gear(28, a_at, turn), gear(12, b_at, b_turn)), union(gear(20, c_at, c_turn), gear(26, d_at, d_turn))), gear(14, e_at, e_turn))
+let pitch = union(union(union(dashed(radius(28), a_at, 56), dashed(radius(12), b_at, 24)), union(dashed(radius(20), c_at, 40), dashed(radius(26), d_at, 52))), dashed(radius(14), e_at, 28))
+let marks = union(union(union(centre_mark(a_at), centre_mark(b_at)), union(centre_mark(c_at), centre_mark(d_at))), centre_mark(e_at))
+
+let sheet = rect(920, 500) |> outline(1.5)
+let title = union(rect(220, 64) |> at(340, 208) |> outline(1.2), union(segment(vec2(230, 196), vec2(450, 196)), segment(vec2(330, 176), vec2(330, 240))) |> grow(0.6))
+
+let minor = min(abs(fract(POS.x / 20 + 0.5) - 0.5), abs(fract(POS.y / 20 + 0.5) - 0.5)) * 20
+let major = min(abs(fract(POS.x / 100 + 0.5) - 0.5), abs(fract(POS.y / 100 + 0.5) - 0.5)) * 100
+let paper = mix(#1f4f86, #173c68, smoothstep(200, 560, length(POS)))
+
+draw FRAME |> fill(paper)
+draw #ffffff * (0.07 * clamp(1 - minor / PX, 0, 1) + 0.13 * clamp(1.2 - major / PX, 0, 1))
+draw sheet |> fill(#ffffff * 0.8)
+draw title |> fill(#ffffff * 0.7)
+draw all |> fill(#ffffff * 0.08)
+draw all |> outline(1.8) |> fill(#eef4ff)
+draw pitch |> fill(#ffffff * 0.45)
+draw marks |> fill(#ffffff * 0.7)

@@ -182,7 +182,7 @@ fn scramble(mut bits: u32) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::super::range::POW_SLACK;
+    use super::super::range::{EXP_NORMAL, POW_SLACK, SLACK_ULPS};
     use super::*;
 
     fn ulps(got: f32, want: f64) -> u32 {
@@ -198,7 +198,7 @@ mod tests {
         (order(got) - order(want)).unsigned_abs() as u32
     }
 
-    fn sweep(lo: f32, hi: f32, n: u32) -> impl Iterator<Item = f32> {
+    fn sweep(lo: f32, hi: f32, n: u32) -> impl DoubleEndedIterator<Item = f32> {
         (0..=n).map(move |i| lo + (hi - lo) * (i as f32 / n as f32))
     }
 
@@ -258,6 +258,17 @@ mod tests {
         }
         for x in sweep(-150.0, 0.0, 500_000) {
             assert!((0.0..=1.0).contains(&exp(x)), "exp({x})");
+        }
+        let slack = |x: f32, step: fn(f32) -> f32| (0..SLACK_ULPS).fold(x, |x, _| step(x));
+        let mut highest = 0.0f32;
+        for x in sweep(EXP_NORMAL, 88.0, 1_000_000) {
+            highest = highest.max(exp(x));
+            assert!(highest <= slack(exp(x), f32::next_up), "exp rises to {x}");
+        }
+        let mut lowest = f32::INFINITY;
+        for x in sweep(EXP_NORMAL, 88.0, 1_000_000).rev() {
+            lowest = lowest.min(exp(x));
+            assert!(lowest >= slack(exp(x), f32::next_down), "exp falls to {x}");
         }
         for y in [1.25f32, 1.5, 2.4, 1.0 / 2.4, 0.5, 3.0, -1.5, -0.7] {
             for (lo, hi) in [(0.0, 4.0), (0.0, 1e6)] {

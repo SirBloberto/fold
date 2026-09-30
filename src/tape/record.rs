@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use super::optimise;
 use super::range::{self, Range};
-use super::{INPUTS, Op, Scalar, Step, Tape};
+use super::{Op, Scalar, Step, Tape};
 
 thread_local! {
     static RECORDING: RefCell<Option<Recorder>> = const { RefCell::new(None) };
@@ -16,14 +16,16 @@ struct Recorder {
     made_by: HashMap<u32, (Op, [Scalar; 3])>,
     recorded: HashMap<(Op, [u32; 3]), u32>,
     steps: Vec<Step>,
+    inputs: usize,
 }
 
 impl Recorder {
-    fn new(inputs: [Range; INPUTS]) -> Recorder {
+    fn new(inputs: &[Range]) -> Recorder {
         Recorder {
             constant_slots: HashMap::new(),
             constants: Vec::new(),
             ranges: inputs.to_vec(),
+            inputs: inputs.len(),
             made_by: HashMap::new(),
             recorded: HashMap::new(),
             steps: Vec::new(),
@@ -35,7 +37,7 @@ impl Recorder {
         let outputs = outputs.map(|out| self.register(out));
         let slots = self.ranges.len() as u32;
         Tape {
-            inputs: std::array::from_fn(|i| self.ranges[i]),
+            inputs: self.ranges[..self.inputs].to_vec(),
             slots,
             constants: self.constants,
             steps: optimise::keep_needed(self.steps, outputs, slots),
@@ -170,19 +172,27 @@ pub fn trace(op: Op, args: [Scalar; 3]) -> Scalar {
     })
 }
 
+pub fn declare(input: Scalar, range: Range) {
+    RECORDING.with_borrow_mut(|recording| {
+        if let (Some(recorder), Scalar::Slot(slot)) = (recording.as_mut(), input) {
+            recorder.ranges[slot as usize] = range;
+        }
+    })
+}
+
 impl Tape {
     pub fn record(
-        inputs: [Range; INPUTS],
+        inputs: &[Range],
         body: impl FnOnce(&[Scalar]) -> Result<[Scalar; 4], String>,
     ) -> Result<Tape, String> {
-        let placeholders: Vec<Scalar> = (0..INPUTS as u32).map(Scalar::Slot).collect();
+        let placeholders: Vec<Scalar> = (0..inputs.len() as u32).map(Scalar::Slot).collect();
         RECORDING.set(Some(Recorder::new(inputs)));
         let result = body(&placeholders);
         let recorder = RECORDING.take().expect("the recorder is still set");
         Ok(recorder.finish(result?))
     }
 
-    pub fn specialise(&self, inputs: [Range; INPUTS]) -> Tape {
+    pub fn specialise(&self, inputs: &[Range]) -> Tape {
         let mut recorder = Recorder::new(inputs);
         let mut values: Vec<Scalar> = (0..self.slots).map(Scalar::Slot).collect();
         for &(slot, n) in &self.constants {

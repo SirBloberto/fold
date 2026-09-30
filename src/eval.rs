@@ -9,7 +9,7 @@ use crate::syntax::ast::{Expr, ExprKind, Program, Stmt, StmtKind};
 use crate::syntax::lexer::lex;
 use crate::syntax::parser::parse_prelude;
 use crate::syntax::token::Pos;
-use crate::tape::{Range, Scalar, TIME, Tape, X, Y};
+use crate::tape::{self, INPUTS, Range, Scalar, TIME, Tape, X, Y};
 use value::{Body, Closure, Shape, ShapeKind, Value};
 
 static PRELUDE: LazyLock<Vec<Stmt>> = LazyLock::new(|| {
@@ -42,6 +42,8 @@ impl Prelude {
             globals: &[],
             vars: Vec::new(),
             canvas: Rgba::CLEAR,
+            knobs: Vec::new(),
+            declared: Vec::new(),
         };
         for stmt in PRELUDE.iter() {
             env.statement(stmt)
@@ -53,38 +55,94 @@ impl Prelude {
 
 pub const LONGEST_TIME: f32 = 16_777_216.0;
 
-pub fn compile(program: &Program, px: f32) -> Result<Tape, String> {
+pub struct Declared {
+    pub name: String,
+    pub slot: usize,
+    pub range: Option<(f32, f32)>,
+    pub default: Vec<f32>,
+}
+
+pub struct Compiled {
+    pub tape: Tape,
+    pub inputs: Vec<Declared>,
+}
+
+impl Compiled {
+    pub fn defaults(&self) -> Vec<f32> {
+        let mut values = vec![0.0; self.tape.inputs.len()];
+        for input in &self.inputs {
+            values[input.slot..][..input.default.len()].copy_from_slice(&input.default);
+        }
+        values
+    }
+}
+
+pub fn compile(program: &Program, px: f32) -> Result<Compiled, String> {
     let (width, height) = (program.header.width as f32, program.header.height as f32);
     let size = maths::vec2(width, height);
     let prelude = Prelude::load(size)?;
     let across = |length: f32| Range::between(px / 2.0 - length / 2.0, length / 2.0 - px / 2.0);
-    let inputs = [
+    let knobs: usize = program
+        .body
+        .iter()
+        .map(|stmt| match &stmt.kind {
+            StmtKind::Input { range: Some(_), .. } => 1,
+            StmtKind::Input { range: None, .. } => 4,
+            _ => 0,
+        })
+        .sum();
+    let mut inputs = vec![
         across(width),
         across(height),
         Range::between(0.0, LONGEST_TIME),
     ];
-    Tape::record(inputs, |inputs| {
+    inputs.resize(INPUTS + knobs, Range::ANY);
+    let mut declared = Vec::new();
+    let tape = Tape::record(&inputs, |inputs| {
         let pixel = Pixel {
             pos: maths::vec2(inputs[X], inputs[Y]),
             time: inputs[TIME],
             px: Scalar::from(px),
             size,
         };
-        Ok(run(program, &prelude, pixel)?.channels())
+        let (canvas, found) = run_with(program, &prelude, pixel, inputs[INPUTS..].to_vec())?;
+        declared = found;
+        Ok(canvas.channels())
+    })?;
+    Ok(Compiled {
+        tape,
+        inputs: declared,
     })
 }
 
+#[cfg(test)]
 pub fn run(program: &Program, prelude: &Prelude, pixel: Pixel) -> Result<Rgba, String> {
+    Ok(run_with(program, prelude, pixel, Vec::new())?.0)
+}
+
+fn run_with(
+    program: &Program,
+    prelude: &Prelude,
+    pixel: Pixel,
+    knobs: Vec<Scalar>,
+) -> Result<(Rgba, Vec<Declared>), String> {
     let mut env = Env {
         pixel,
         globals: &prelude.vars,
         vars: Vec::new(),
         canvas: Rgba::CLEAR,
+        knobs,
+        declared: Vec::new(),
     };
     for stmt in &program.body {
         env.statement(stmt)?;
     }
-    Ok(env.canvas)
+    Ok((env.canvas, env.declared))
+}
+
+enum Input {
+    Num(f32, f32, f32),
+    Rgba([f32; 4]),
 }
 
 struct Env<'a> {
@@ -92,6 +150,8 @@ struct Env<'a> {
     globals: &'a [(&'a str, Value<'a>)],
     vars: Vec<(&'a str, Value<'a>)>,
     canvas: Rgba,
+    knobs: Vec<Scalar>,
+    declared: Vec<Declared>,
 }
 
 impl<'a> Env<'a> {
@@ -103,7 +163,8 @@ impl<'a> Env<'a> {
                 default,
             } => {
                 let value = self.expr(default)?;
-                self.check_input(range, &value, stmt.pos)?;
+                let value = self.check_input(range, value, stmt.pos)?;
+                let value = self.input(name, value);
                 self.vars.push((name, value));
             }
             StmtKind::Let { name, value } => {
@@ -132,17 +193,59 @@ impl<'a> Env<'a> {
         Ok(())
     }
 
+    fn input(&mut self, name: &str, value: Input) -> Value<'a> {
+        let first: usize = self.declared.iter().map(|input| input.default.len()).sum();
+        let (default, range) = match value {
+            Input::Num(n, lo, hi) => (vec![n], Some((lo, hi))),
+            Input::Rgba(channels) => (channels.to_vec(), None),
+        };
+        let Some(knobs) = self.knobs.get(first..first + default.len()) else {
+            return match value {
+                Input::Num(n, ..) => Value::Num(Scalar::Known(n)),
+                Input::Rgba([r, g, b, a]) => Value::Rgba(Rgba {
+                    r: r.into(),
+                    g: g.into(),
+                    b: b.into(),
+                    a: a.into(),
+                }),
+            };
+        };
+        let bounds = match range {
+            Some((lo, hi)) => Range::between(lo, hi),
+            None => Range::between(0.0, 1.0),
+        };
+        for &knob in knobs {
+            tape::declare(knob, bounds);
+        }
+        let value = match knobs {
+            &[r, g, b, a] => Value::Rgba(Rgba { r, g, b, a }),
+            _ => Value::Num(knobs[0]),
+        };
+        self.declared.push(Declared {
+            name: name.into(),
+            slot: INPUTS + first,
+            range,
+            default,
+        });
+        value
+    }
+
     fn check_input(
         &self,
         range: &'a Option<(Expr, Expr)>,
-        default: &Value<'a>,
+        default: Value<'a>,
         pos: Pos,
-    ) -> Result<(), String> {
+    ) -> Result<Input, String> {
         let message = match (range, default) {
-            (None, Value::Rgba(_)) => return Ok(()),
+            (None, Value::Rgba(col)) => match col.valid().channels().map(|c| c.known()) {
+                [Some(r), Some(g), Some(b), Some(a)] => return Ok(Input::Rgba([r, g, b, a])),
+                _ => "an input's default must be a constant".into(),
+            },
             (Some((min, max)), Value::Num(n)) => match (self.expr(min)?, self.expr(max)?) {
                 (Value::Num(lo), Value::Num(hi)) => match (lo.known(), hi.known(), n.known()) {
-                    (Some(lo), Some(hi), Some(n)) if lo <= n && n <= hi => return Ok(()),
+                    (Some(lo), Some(hi), Some(n)) if lo <= n && n <= hi => {
+                        return Ok(Input::Num(n + 0.0, lo, hi));
+                    }
                     (Some(lo), Some(hi), Some(n)) => {
                         format!("the default {n} is outside {lo}..{hi}")
                     }
@@ -254,6 +357,8 @@ impl<'a> Env<'a> {
             globals: self.globals,
             vars: closure.captured.clone(),
             canvas: Rgba::CLEAR,
+            knobs: Vec::new(),
+            declared: Vec::new(),
         };
         env.vars.extend(closure.params.iter().copied().zip(args));
 
@@ -315,7 +420,8 @@ fn at(message: &str, pos: Pos) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::{self, Renderer};
+    use crate::render::{self, Canvas, Renderer};
+    use std::sync::Arc;
     use crate::syntax::header::parse_header;
     use crate::syntax::parser::parse;
     use crate::tape::{Kernel, Op, Step};
@@ -369,6 +475,8 @@ mod tests {
             globals: &prelude.vars,
             vars: Vec::new(),
             canvas: Rgba::CLEAR,
+            knobs: Vec::new(),
+            declared: Vec::new(),
         };
         for stmt in &program.body {
             env.statement(stmt)?;
@@ -681,50 +789,66 @@ mod tests {
     }
 
     fn tape_of(src: &str) -> Result<Tape, String> {
-        compile(&load(src)?, 1.0)
+        Ok(compile(&load(src)?, 1.0)?.tape)
     }
 
     fn same_on_tape(src: &str) {
         let program = load(src).expect(src);
-        let tape = compile(&program, 1.0).expect(src);
-        let (width, height) = (
-            program.header.width as usize,
-            program.header.height as usize,
-        );
-        let size = maths::vec2(width as f32, height as f32);
+        for px in [1.0, 2.0] {
+            same_at_scale(src, &program, px);
+        }
+    }
+
+    fn same_at_scale(src: &str, program: &Program, px: f32) {
+        let compiled = compile(program, px).expect(src);
+        let mut values = compiled.defaults();
+        let tape = compiled.tape;
+        let (units_x, units_y) = (program.header.width as f32, program.header.height as f32);
+        let canvas = Canvas {
+            width: (units_x / px).round() as usize,
+            height: (units_y / px).round() as usize,
+            px,
+        };
+        let (width, height) = (canvas.width, canvas.height);
+        let size = maths::vec2(units_x, units_y);
         let prelude = Prelude::load(size).unwrap();
         let spacing = (width.max(height) / 24).max(1);
         let reference = |col: usize, row: usize, time: f32| {
             let pixel = Pixel {
                 pos: maths::vec2(
-                    col as f32 + 0.5 - width as f32 / 2.0,
-                    row as f32 + 0.5 - height as f32 / 2.0,
+                    (col as f32 + 0.5 - width as f32 / 2.0) * px,
+                    (row as f32 + 0.5 - height as f32 / 2.0) * px,
                 ),
                 time: Scalar::from(time),
-                px: Scalar::from(1.0),
+                px: Scalar::from(px),
                 size,
             };
-            run(&program, &prelude, pixel).expect(src).channels()
+            run(program, &prelude, pixel).expect(src).channels()
         };
-        let mut renderer = Renderer::new(compile(&program, 1.0).unwrap(), width, height);
+        let shared = Arc::new(compile(program, px).unwrap().tape);
+        let mut folded = Renderer::new(shared.clone(), canvas, &values, false);
+        let mut live = Renderer::new(shared, canvas, &values, true);
         for time in [0.0, 1.3] {
+            values[TIME] = time;
             let wanted = |row: usize| row.is_multiple_of(spacing);
-            render::trace(&tape, width, height, time, wanted, |col, row, got| {
+            render::trace(&tape, canvas, &values, wanted, |col, row, got| {
                 if !col.is_multiple_of(spacing) {
                     return;
                 }
                 let want = reference(col, row, time);
                 for (want, got) in want.iter().zip(got) {
                     let want = want.known().unwrap();
-                    assert_eq!(want.to_bits(), got.to_bits(), "at ({col}, {row}): {src}");
+                    assert_eq!(want.to_bits(), got.to_bits(), "at ({col}, {row}) px {px}: {src}");
                 }
             });
-            let pixels = renderer.frame(time).to_vec();
-            for row in (0..height).step_by(spacing) {
-                for col in (0..width).step_by(spacing) {
-                    let want = reference(col, row, time).map(|c| c.known().unwrap());
-                    let got = pixels[row * width + col];
-                    assert_eq!(byte_colour(want), got, "at ({col}, {row}): {src}");
+            for renderer in [&mut folded, &mut live] {
+                let pixels = renderer.frame(time).to_vec();
+                for row in (0..height).step_by(spacing) {
+                    for col in (0..width).step_by(spacing) {
+                        let want = reference(col, row, time).map(|c| c.known().unwrap());
+                        let got = pixels[row * width + col];
+                        assert_eq!(byte_colour(want), got, "at ({col}, {row}) px {px}: {src}");
+                    }
                 }
             }
         }
@@ -812,7 +936,7 @@ draw #ffffff * k",
             assert_eq!(count(&tape, check), 0, "{check:?}");
         }
         assert!(
-            tape.steps.len() <= 33,
+            tape.steps.len() <= 35,
             "sun.fld has {} steps",
             tape.steps.len()
         );

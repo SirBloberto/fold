@@ -1,0 +1,21 @@
+~fold v1 960x540
+
+input warp: 0..0.95 = 0.8
+
+let size = 20
+let across = TAU / 520
+let down = TAU / 430
+let phase_x = POS.x * across + TIME * 0.6
+let phase_y = POS.y * down - TIME * 0.45
+
+let u = (POS.x + warp / across * sin(phase_x)) / size
+let v = (POS.y + 0.6 * warp / down * sin(phase_y)) / size
+let du = (1 + warp * cos(phase_x)) / size
+let dv = (1 + 0.6 * warp * cos(phase_y)) / size
+
+let edge_x = min(fract(u), 1 - fract(u)) / du
+let edge_y = min(fract(v), 1 - fract(v)) / dv
+let parity = mod(floor(u) + floor(v), 2)
+let ink = 0.5 + (parity - 0.5) * clamp(2 * min(edge_x, edge_y) / PX, 0, 1)
+
+draw FRAME |> fill(mix(#f3eee2, #121212, ink))

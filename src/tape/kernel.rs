@@ -1,9 +1,10 @@
 use super::batch::{Batch, Lanes};
-use super::{Step, TIME, Tape, X, Y, execute};
+use super::{INPUTS, Step, TIME, Tape, X, Y, execute};
 
 const ON_X: u8 = 1;
 const ON_Y: u8 = 2;
 const ON_TIME: u8 = 4;
+const ON_INPUT: u8 = 8;
 
 #[derive(Debug)]
 pub struct Kernel {
@@ -13,6 +14,7 @@ pub struct Kernel {
     pub row: Vec<Step>,
     pub batch: Batch,
     pub changes: bool,
+    pub reacts: bool,
 }
 
 #[derive(Default)]
@@ -27,6 +29,7 @@ impl Kernel {
         on[X] = ON_X;
         on[Y] = ON_Y;
         on[TIME] = ON_TIME;
+        on[INPUTS..tape.inputs.len()].fill(ON_INPUT);
         let (mut frame, mut row, mut column, mut pixel) = (vec![], vec![], vec![], vec![]);
         for &step in &tape.steps {
             let depends = step.args.iter().fold(0, |d, &arg| d | on[arg as usize]);
@@ -40,23 +43,22 @@ impl Kernel {
             level.push(step);
         }
         let by_row: Vec<bool> = on.iter().map(|&d| d & ON_Y != 0).collect();
+        let reads = |bit: u8| tape.outputs.iter().any(|&out| on[out as usize] & bit != 0);
         Kernel {
             slots: tape.slots,
             constants: tape.constants.clone(),
             frame,
             row,
             batch: Batch::new(&column, &pixel, tape.outputs, &by_row),
-            changes: tape
-                .outputs
-                .iter()
-                .any(|&out| on[out as usize] & ON_TIME != 0),
+            changes: reads(ON_TIME),
+            reacts: reads(ON_INPUT),
         }
     }
 
     pub fn run(
         &self,
         scratch: &mut Scratch,
-        time: f32,
+        frame: &[f32],
         x: &Lanes,
         ys: impl IntoIterator<Item = (usize, f32)>,
         mut each: impl FnMut(usize, [&Lanes; 4]),
@@ -66,7 +68,7 @@ impl Kernel {
         for &(slot, n) in &self.constants {
             values[slot as usize] = n;
         }
-        values[TIME] = time;
+        values[TIME..frame.len()].copy_from_slice(&frame[TIME..]);
         execute(&self.frame, values);
         self.batch.start(lanes, values, x);
         for (row, y) in ys {

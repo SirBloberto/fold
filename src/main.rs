@@ -17,17 +17,25 @@ fn main() {
 }
 
 fn render(args: &[String]) -> Result<(), String> {
-    let usage = "usage: fold render <file.fld> <out.png> [--time seconds]";
+    let usage = "usage: fold render <file.fld> <out.png> [--time seconds] [--width pixels]";
     let [input, output, rest @ ..] = args else {
         return Err(usage.into());
     };
-    let time = match rest {
-        [] => 0.0,
-        [flag, seconds] if flag == "--time" => seconds.parse().map_err(|_| usage)?,
-        _ => return Err(usage.into()),
-    };
+    let (mut time, mut width) = (0.0, None);
+    for pair in rest.chunks(2) {
+        match pair {
+            [flag, value] if flag == "--time" => time = value.parse().map_err(|_| usage)?,
+            [flag, value] if flag == "--width" => {
+                width = Some(value.parse().ok().filter(|&w| w > 0).ok_or(usage)?)
+            }
+            _ => return Err(usage.into()),
+        }
+    }
     let source = std::fs::read_to_string(input).map_err(|e| format!("{input}: {e}"))?;
     let mut picture = fold::load(&source).map_err(|e| format!("{input}: {e}"))?;
+    if let Some(width) = width {
+        picture.resize(width);
+    }
     std::fs::write(output, picture.png(time)).map_err(|e| format!("{output}: {e}"))
 }
 

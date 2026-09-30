@@ -1,0 +1,1 @@
+an input's default must be a constant at line 2, column 1

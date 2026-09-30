@@ -11,6 +11,7 @@ pub use batch::{LANES, Lanes};
 pub use kernel::{Kernel, Scratch};
 pub use op::Op;
 pub use range::Range;
+pub use record::declare;
 pub use scalar::Scalar;
 
 pub const X: usize = 0;
@@ -27,7 +28,7 @@ pub struct Step {
 
 #[derive(Debug)]
 pub struct Tape {
-    pub inputs: [Range; INPUTS],
+    pub inputs: Vec<Range>,
     pub slots: u32,
     pub constants: Vec<(u32, f32)>,
     pub steps: Vec<Step>,

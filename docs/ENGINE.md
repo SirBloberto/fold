@@ -7,7 +7,7 @@ For people implementing Fold. The language itself is defined in [SPEC.md](SPEC.m
 2. Load the prelude, then the file. The prelude is Fold source shipped with the engine.
 3. Lex, parse and check. **Every error is reported at load time**, with a line and column: syntax, unknown names, wrong arguments, types, redefinition, recursion and limits. A file that loads successfully must render without errors. Error messages name types as `num`, `vec2`, `rgba`, `shape` and `func`.
 ## 2. Rendering
-- The host chooses the output size. Canvas units are scaled uniformly to fit, and `PX` is the size of one output pixel in units *(open: letterbox or crop when the aspect ratio differs)*.
+- The host chooses the output width. The height follows from the header's aspect ratio, rounded to whole pixels. `PX` is the size of one output pixel in canvas units: the header's width divided by the output width.
 - Each pixel is sampled at its centre.
 - Colour literals are converted from sRGB to linear light when evaluated. All colour maths and compositing happen in premultiplied linear light, and the final canvas is converted back to sRGB.
 - Each channel of the final canvas becomes an 8-bit sRGB value by counting how many of 255 thresholds it reaches. Threshold *k* is the linear-light value of sRGB (*k* − ½) / 255, rounded to the nearest 32-bit float. NaN and negative values give 0; values of 1 or more give 255.
@@ -47,6 +47,8 @@ scene.set_eased(name, value, seconds)
                         → the engine animates the input to its new value
 scene.render(time, width, height) → premultiplied sRGB pixels
 ```
+- A num set to NaN takes the bottom of its range.
+- Hosts give and receive rgba inputs as sRGB with straight alpha, each channel from 0 to 1. The engine converts them to premultiplied linear light, as it does colour literals.
 - Hosts track time in at least 64-bit, and pass `TIME` wrapped to at most 2¹⁶ seconds so that 32-bit precision holds.
 - A scene with no `TIME` dependency and no changed inputs does not need to be re-rendered.
 
@@ -56,6 +58,7 @@ Engines may optimise freely, provided the pixels are identical (§3):
 - skip tiles that interval arithmetic proves are constant, using shape bounds;
 - prune shapes that cannot affect a tile;
 - keep tiles that don't depend on `TIME` from one frame to the next, until an input changes;
+- treat inputs as constants until the host first changes one, then as values within their declared ranges;
 - recognise common prelude transforms (`at`, `spin`, `around`) and handle them natively.
 
 ## 7. Conformance

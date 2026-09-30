@@ -178,16 +178,15 @@ pub fn of_op(op: Op, [a, b, c]: [Range; 3]) -> Range {
             minus_zero: true,
             ..Range::between(-1.0, 1.0).widen()
         },
-        Op::Exp => Range {
-            lo: below(float::exp(a.lo)).max(0.0),
-            hi: if a.hi <= 0.0 {
-                1.0
-            } else {
-                above(float::exp(a.hi))
-            },
-            nan: a.nan,
-            minus_zero: false,
-        },
+        Op::Exp => {
+            let top = above(float::exp(a.hi.max(EXP_NORMAL)));
+            Range {
+                lo: below(float::exp(a.lo)).max(0.0),
+                hi: if a.hi <= 0.0 { top.min(1.0) } else { top },
+                nan: a.nan,
+                minus_zero: false,
+            }
+        }
         Op::Atan2 => Range {
             nan: a.nan || b.nan,
             minus_zero: true,
@@ -250,10 +249,13 @@ pub fn of_op(op: Op, [a, b, c]: [Range; 3]) -> Range {
 
 pub const POW_SLACK: f32 = 1.0 / 4096.0;
 
+pub const EXP_NORMAL: f32 = -87.0;
+pub const SLACK_ULPS: usize = 4;
+
 fn below(x: f32) -> f32 {
-    (0..4).fold(x, |x, _| x.next_down())
+    (0..SLACK_ULPS).fold(x, |x, _| x.next_down())
 }
 
 fn above(x: f32) -> f32 {
-    (0..4).fold(x, |x, _| x.next_up())
+    (0..SLACK_ULPS).fold(x, |x, _| x.next_up())
 }

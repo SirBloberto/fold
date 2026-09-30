@@ -3,5 +3,14 @@ name = "fold"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
+[workspace]
+members = ["web"]
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 minifb = "0.28.0"
+
+[profile.web]
+inherits = "release"
+lto = true
+codegen-units = 1
+panic = "abort"
