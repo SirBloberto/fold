@@ -2,6 +2,7 @@ mod output;
 mod pool;
 
 use std::cell::RefCell;
+use std::ops::Range as Rows;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -23,6 +24,8 @@ pub struct Renderer {
     values: Vec<f32>,
     live: bool,
     stale: bool,
+    changed: Vec<Area>,
+    first: bool,
     pool: Pool,
 }
 
@@ -41,19 +44,28 @@ pub struct Canvas {
     pub px: f32,
 }
 
-#[derive(Clone, Copy)]
-struct Area {
-    left: usize,
-    top: usize,
-    width: usize,
-    height: usize,
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Area {
+    pub left: usize,
+    pub top: usize,
+    pub width: usize,
+    pub height: usize,
 }
 
 impl Renderer {
-    pub fn new(tape: Arc<Tape>, canvas: Canvas, values: &[f32], live: bool) -> Renderer {
+    pub fn new(
+        tape: Arc<Tape>,
+        canvas: Canvas,
+        values: &[f32],
+        live: bool,
+        rows: Rows<usize>,
+    ) -> Renderer {
         let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
         let pool = Pool::new(cores);
-        let areas = areas(canvas);
+        let areas: Vec<Area> = areas(canvas)
+            .into_iter()
+            .filter(|area| area.top < rows.end && rows.start < area.top + area.height)
+            .collect();
         let built: Arc<Vec<Mutex<Option<Tile>>>> =
             Arc::new(areas.iter().map(|_| Mutex::new(None)).collect());
         let mut inputs = tape.inputs.clone();
@@ -91,6 +103,8 @@ impl Renderer {
             values: values.to_vec(),
             live,
             stale: false,
+            changed: Vec::new(),
+            first: true,
             pool,
         };
         renderer.show_fresh();
@@ -105,8 +119,17 @@ impl Renderer {
         }
     }
 
+    pub fn changed(&self) -> &[Area] {
+        &self.changed
+    }
+
+    pub fn pixels(&self) -> &[u32] {
+        &self.pixels
+    }
+
     pub fn frame(&mut self, time: f32) -> &[u32] {
         self.values[TIME] = time;
+        self.changed.clear();
         let stale = std::mem::take(&mut self.stale);
         let due: Vec<usize> = (0..self.tiles.len())
             .filter(|&tile| lock(&self.tiles[tile]).due(stale))
@@ -125,6 +148,9 @@ impl Renderer {
             });
             self.show_fresh();
         }
+        if std::mem::take(&mut self.first) {
+            self.changed = self.tiles.iter().map(|tile| lock(tile).area).collect();
+        }
         &self.pixels
     }
 
@@ -135,9 +161,33 @@ impl Renderer {
                 continue;
             }
             let area = tile.area;
+            let mut bounds: Option<Area> = None;
             for (row, line) in tile.pixels.chunks(area.width).enumerate() {
                 let start = (area.top + row) * self.canvas.width + area.left;
-                self.pixels[start..start + area.width].copy_from_slice(line);
+                let old = &mut self.pixels[start..start + area.width];
+                let Some(first) = old.iter().zip(line).position(|(a, b)| a != b) else {
+                    continue;
+                };
+                let last = old.iter().zip(line).rposition(|(a, b)| a != b).unwrap_or(first);
+                old[first..=last].copy_from_slice(&line[first..=last]);
+                let (left, right) = match bounds {
+                    Some(b) => (b.left.min(first), (b.left + b.width).max(last + 1)),
+                    None => (first, last + 1),
+                };
+                let top = bounds.map_or(row, |b| b.top);
+                bounds = Some(Area {
+                    left,
+                    top,
+                    width: right - left,
+                    height: row + 1 - top,
+                });
+            }
+            if let Some(bounds) = bounds {
+                self.changed.push(Area {
+                    left: area.left + bounds.left,
+                    top: area.top + bounds.top,
+                    ..bounds
+                });
             }
             tile.fresh = false;
         }
@@ -279,7 +329,7 @@ mod tests {
         };
         let compiled = compile(&program, 1.0).unwrap();
         let values = compiled.defaults();
-        Renderer::new(Arc::new(compiled.tape), canvas, &values, true)
+        Renderer::new(Arc::new(compiled.tape), canvas, &values, true, 0..256)
     }
 
     fn due(renderer: &Renderer) -> usize {
@@ -338,6 +388,49 @@ mod tests {
         );
         renderer.frame(0.0);
         assert!(due(&renderer) <= 8);
+    }
+
+    #[test]
+    fn spinning_shapes_leave_the_tiles_inside_their_ring() {
+        let renderer = renderer(
+            "draw FRAME |> fill(#101820)
+draw circle(10) |> at(100, 0) |> around(8) |> spin(TIME) |> fill(#ffaa00)",
+        );
+        let still = |left: usize, top: usize| {
+            renderer
+                .tiles
+                .iter()
+                .map(|tile| lock(tile))
+                .find(|tile| tile.area.left == left && tile.area.top == top)
+                .map(|tile| tile.kernel.is_none())
+        };
+        for (left, top) in [(128, 128), (0, 0), (192, 0), (0, 240), (192, 240)] {
+            assert_eq!(still(left, top), Some(true), "tile at ({left}, {top})");
+        }
+    }
+
+    #[test]
+    fn only_tiles_whose_pixels_differ_count_as_changed() {
+        let mut renderer = renderer(
+            "draw circle(40) |> glow(#ffaa00, 30)
+draw circle(8) |> at(sin(TIME) * 10, 0) |> fill(#ffffff)",
+        );
+        renderer.frame(0.0);
+        assert_eq!(renderer.changed().len(), renderer.tiles.len());
+        renderer.frame(0.0);
+        assert!(renderer.changed().is_empty());
+        let before = renderer.frame(0.0).to_vec();
+        let after = renderer.frame(1.0).to_vec();
+        let moved = renderer.changed();
+        assert!(!moved.is_empty() && moved.len() <= 8, "{} tiles changed", moved.len());
+        for (i, (a, b)) in before.iter().zip(&after).enumerate() {
+            let (x, y) = (i % 256, i / 256);
+            let inside = moved.iter().any(|area| {
+                (area.left..area.left + area.width).contains(&x)
+                    && (area.top..area.top + area.height).contains(&y)
+            });
+            assert!(a == b || inside, "({x}, {y}) changed outside every area");
+        }
     }
 
     #[test]

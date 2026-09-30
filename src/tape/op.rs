@@ -1,4 +1,4 @@
-use super::float::{atan2, clamp, cos, exp, flag, hash, pow, sin, to_linear, to_srgb};
+use super::float::{atan2, clamp, cos, exp, flag, hash, max, min, pow, sin, to_linear, to_srgb};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Op {
@@ -24,6 +24,7 @@ pub enum Op {
     IsNan,
     AtMost,
     Select,
+    Hint,
 }
 
 impl Op {
@@ -43,8 +44,8 @@ impl Op {
             Op::Exp => exp(a),
             Op::Pow => pow(a, b),
             Op::Atan2 => atan2(a, b),
-            Op::Min => a.min(b),
-            Op::Max => a.max(b),
+            Op::Min => min(a, b),
+            Op::Max => max(a, b),
             Op::Clamp => clamp(a, b, c),
             Op::ToLinear => to_linear(a),
             Op::ToSrgb => to_srgb(a),
@@ -58,6 +59,7 @@ impl Op {
                     c
                 }
             }
+            Op::Hint => a,
         }
     }
 }

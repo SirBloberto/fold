@@ -13,6 +13,16 @@ pub fn clamp(x: f32, lo: f32, hi: f32) -> f32 {
     }
 }
 
+#[inline(always)]
+pub fn min(a: f32, b: f32) -> f32 {
+    if b < a || a.is_nan() { b } else { a }
+}
+
+#[inline(always)]
+pub fn max(a: f32, b: f32) -> f32 {
+    if b > a || a.is_nan() { b } else { a }
+}
+
 pub fn flag(yes: bool) -> f32 {
     if yes { 1.0 } else { 0.0 }
 }
@@ -248,6 +258,22 @@ mod tests {
                 "atan2({y}, {x})"
             );
         }
+    }
+
+    #[test]
+    fn min_and_max_ignore_nan_and_keep_the_first_of_equals() {
+        let nan = f32::NAN;
+        assert_eq!(min(1.0, 2.0), 1.0);
+        assert_eq!(max(1.0, 2.0), 2.0);
+        assert_eq!(min(nan, 2.0), 2.0);
+        assert_eq!(min(2.0, nan), 2.0);
+        assert_eq!(max(nan, 2.0), 2.0);
+        assert_eq!(max(2.0, nan), 2.0);
+        assert!(min(nan, nan).is_nan() && max(nan, nan).is_nan());
+        assert_eq!(min(-0.0, 0.0).to_bits(), (-0.0f32).to_bits());
+        assert_eq!(min(0.0, -0.0).to_bits(), 0.0f32.to_bits());
+        assert_eq!(max(-0.0, 0.0).to_bits(), (-0.0f32).to_bits());
+        assert_eq!(max(0.0, -0.0).to_bits(), 0.0f32.to_bits());
     }
 
     #[test]

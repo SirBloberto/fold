@@ -1,6 +1,6 @@
 export class Fold {
-    static async start(url) {
-        const { instance } = await WebAssembly.instantiateStreaming(fetch(url), {});
+    static async start(module) {
+        const instance = await WebAssembly.instantiate(module, {});
         return new Fold(instance.exports);
     }
 
@@ -66,6 +66,15 @@ export class Picture {
 
     resize(width) {
         this.fold.wasm.resize(this.id, Math.max(1, Math.round(width)));
+    }
+
+    band(top, rows) {
+        this.fold.wasm.band(this.id, top, rows);
+    }
+
+    changes(time) {
+        const length = this.fold.wasm.changes(this.id, time);
+        return this.fold.bytes(this.fold.wasm.packed(this.id), length).slice();
     }
 
     draw(canvas, time) {

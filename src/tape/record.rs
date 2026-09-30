@@ -32,15 +32,20 @@ impl Recorder {
         }
     }
 
-    fn finish(mut self, outputs: [Scalar; 4]) -> Tape {
+    fn finish(mut self, outputs: [Scalar; 4], hints: bool) -> Tape {
         let ranges = outputs.map(|out| self.range(out));
         let outputs = outputs.map(|out| self.register(out));
         let slots = self.ranges.len() as u32;
+        let steps = if hints {
+            self.steps
+        } else {
+            optimise::without_hints(self.steps)
+        };
         Tape {
             inputs: self.ranges[..self.inputs].to_vec(),
             slots,
             constants: self.constants,
-            steps: optimise::keep_needed(self.steps, outputs, slots),
+            steps: optimise::keep_needed(steps, outputs, slots),
             outputs,
             ranges,
         }
@@ -73,7 +78,29 @@ impl Recorder {
         }
     }
 
+    fn narrow(&mut self, value: Scalar, floor: Scalar) -> Scalar {
+        let Scalar::Slot(slot) = value else {
+            return value;
+        };
+        if floor == Scalar::Known(f32::NEG_INFINITY) {
+            return value;
+        }
+        let lower = self.range(floor);
+        let current = self.ranges[slot as usize];
+        self.ranges[slot as usize] = range::of_op(Op::Hint, [current, lower, Range::ANY]);
+        let floor = self.register(floor);
+        self.steps.push(Step {
+            op: Op::Hint,
+            args: [slot, floor, slot],
+            out: slot,
+        });
+        value
+    }
+
     fn record(&mut self, op: Op, args: [Scalar; 3]) -> Scalar {
+        if op == Op::Hint {
+            return self.narrow(args[0], args[1]);
+        }
         if let Some(shortcut) = self.simplify(op, args) {
             return shortcut;
         }
@@ -189,7 +216,7 @@ impl Tape {
         RECORDING.set(Some(Recorder::new(inputs)));
         let result = body(&placeholders);
         let recorder = RECORDING.take().expect("the recorder is still set");
-        Ok(recorder.finish(result?))
+        Ok(recorder.finish(result?, true))
     }
 
     pub fn specialise(&self, inputs: &[Range]) -> Tape {
@@ -207,6 +234,6 @@ impl Tape {
                 _ => recorder.record(step.op, args),
             };
         }
-        recorder.finish(self.outputs.map(|out| values[out as usize]))
+        recorder.finish(self.outputs.map(|out| values[out as usize]), false)
     }
 }

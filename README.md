@@ -69,6 +69,6 @@ cargo web
 python -m http.server
 ```
 
-The player runs on one thread and renders each picture at the size of its place on the page.
+The page renders every picture at the screen's full resolution. It splits each frame into bands of rows, one per Web Worker, so the work spreads across the CPU's cores, and each worker sends back only the rectangles whose pixels changed.
 
 `cargo test` runs the unit tests and the conformance suite in [`tests/conformance`](tests/conformance).

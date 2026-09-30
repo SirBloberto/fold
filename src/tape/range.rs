@@ -224,7 +224,14 @@ pub fn of_op(op: Op, [a, b, c]: [Range; 3]) -> Range {
             ..Range::between(0.0, 1.0).widen()
         },
         Op::Hash => Range::between(0.0, 1.0),
+        Op::AtMost if !a.nan && !b.nan && a.hi <= b.lo => Range::of(1.0),
+        Op::AtMost if a.lo > b.hi => Range::of(0.0),
         Op::IsNan | Op::AtMost => Range::between(0.0, 1.0),
+        Op::Hint if b.nan => a,
+        Op::Hint => Range {
+            lo: a.lo.max(b.lo).min(a.hi),
+            ..a
+        },
         Op::Select => Range {
             lo: b.lo.min(c.lo),
             hi: b.hi.max(c.hi),

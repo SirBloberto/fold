@@ -97,6 +97,13 @@ impl Scalar {
         Scalar::apply(Op::Clamp, [self, lo.into(), hi.into()])
     }
 
+    pub fn hint(self, floor: Scalar) -> Scalar {
+        match self {
+            Scalar::Known(_) => self,
+            Scalar::Slot(_) => self.binary(Op::Hint, floor),
+        }
+    }
+
     pub fn select(self, yes: impl Into<Scalar>, no: impl Into<Scalar>) -> Scalar {
         Scalar::apply(Op::Select, [self, yes.into(), no.into()])
     }

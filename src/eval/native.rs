@@ -1,5 +1,5 @@
 use super::value::{ShapeKind, Value, new_shape};
-use crate::maths::shape::Bounds;
+use crate::maths::shape::{Bounds, Reach};
 use crate::maths::{self, Rgba};
 use crate::syntax::ast::BinOp;
 use crate::tape::Scalar;
@@ -26,17 +26,24 @@ pub fn call<'a>(name: &str, args: &[Value<'a>], size: maths::Vec2) -> Result<Val
         ("hash", [Vec2(pt)]) => Num(maths::hash(*pt)),
 
         ("circle", [Num(r)]) => {
-            new_shape(ShapeKind::Circle(*r), Bounds::around(maths::vec2(*r, *r)))
+            let half = maths::vec2(*r, *r);
+            new_shape(ShapeKind::Circle(*r), Bounds::around(half), Reach::around(half))
         }
         ("rect", [Num(w), Num(h)]) => {
             let half = maths::vec2(*w / 2.0, *h / 2.0);
-            new_shape(ShapeKind::Rect(half), Bounds::around(half))
+            new_shape(ShapeKind::Rect(half), Bounds::around(half), Reach::around(half))
         }
         ("segment", [Vec2(from), Vec2(to)]) => {
-            new_shape(ShapeKind::Segment(*from, *to), Bounds::between(*from, *to))
+            let bounds = Bounds::between(*from, *to);
+            let reach = Reach::Box {
+                min: bounds.min,
+                max: bounds.max,
+            };
+            new_shape(ShapeKind::Segment(*from, *to), bounds, reach)
         }
         ("shape", [Func(fn_)]) => {
-            new_shape(ShapeKind::Custom(fn_.clone()), Bounds::around(size * 0.5))
+            let bounds = Bounds::around(size * 0.5);
+            new_shape(ShapeKind::Custom(fn_.clone()), bounds, Reach::Everywhere)
         }
         ("anchor", [Shape(sh), Vec2(anc)]) => Vec2(sh.bounds.anchor(*anc)),
 

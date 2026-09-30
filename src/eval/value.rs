@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::maths::shape::Bounds;
+use crate::maths::shape::{Bounds, Reach};
 use crate::maths::{Rgba, Vec2};
 use crate::syntax::ast::{Expr, Stmt};
 use crate::tape::Scalar;
@@ -28,8 +28,10 @@ pub enum Body<'a> {
 pub struct Shape<'a> {
     pub kind: ShapeKind<'a>,
     pub bounds: Bounds,
+    pub reach: Reach,
 }
 
+#[derive(Clone)]
 pub enum ShapeKind<'a> {
     Circle(Scalar),
     Rect(Vec2),
@@ -37,8 +39,12 @@ pub enum ShapeKind<'a> {
     Custom(Rc<Closure<'a>>),
 }
 
-pub fn new_shape<'a>(kind: ShapeKind<'a>, bounds: Bounds) -> Value<'a> {
-    Value::Shape(Rc::new(Shape { kind, bounds }))
+pub fn new_shape<'a>(kind: ShapeKind<'a>, bounds: Bounds, reach: Reach) -> Value<'a> {
+    Value::Shape(Rc::new(Shape {
+        kind,
+        bounds,
+        reach,
+    }))
 }
 
 impl Value<'_> {

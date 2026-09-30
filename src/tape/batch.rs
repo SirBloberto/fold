@@ -60,17 +60,19 @@ impl Batch {
             let args = step
                 .args
                 .map(|arg| row_of[arg as usize].expect("an argument has a row"));
+            let mut released = Vec::new();
             for (n, arg) in step.args.iter().enumerate() {
                 let arg = *arg as usize;
                 let first = !step.args[..n].contains(&step.args[n]);
                 if made_here[arg] && last_use[arg] == i && first {
-                    free.push(row_of[arg].expect("an argument has a row"));
+                    released.push(row_of[arg].expect("an argument has a row"));
                 }
             }
             let out = free.pop().unwrap_or_else(|| {
                 rows += 1;
                 rows - 1
             });
+            free.extend(released);
             row_of[step.out as usize] = Some(out);
             placed.push(Step {
                 op: step.op,
@@ -113,31 +115,41 @@ impl Batch {
 
 fn execute(steps: &[Step], rows: &mut [Lanes]) {
     for step in steps {
-        let [a, b, c] = step.args.map(|arg| arg as usize);
-        let result = apply(step.op, &rows[a], &rows[b], &rows[c]);
-        rows[step.out as usize] = result;
+        let out = step.out as usize;
+        let (before, rest) = rows.split_at_mut(out);
+        let (target, after) = rest
+            .split_first_mut()
+            .expect("the output row exists");
+        let read = |arg: u32| -> &Lanes {
+            let arg = arg as usize;
+            if arg < out {
+                &before[arg]
+            } else {
+                &after[arg - out - 1]
+            }
+        };
+        let [a, b, c] = step.args.map(read);
+        apply(step.op, a, b, c, target);
     }
 }
 
 macro_rules! by_op {
-    ($op:expr, $a:expr, $b:expr, $c:expr, $($name:ident)*) => {
+    ($op:expr, $a:expr, $b:expr, $c:expr, $out:expr, $($name:ident)*) => {
         match $op {
-            $(Op::$name => each($a, $b, $c, |a, b, c| Op::$name.eval(a, b, c)),)*
+            $(Op::$name => each($a, $b, $c, $out, |a, b, c| Op::$name.eval(a, b, c)),)*
         }
     };
 }
 
-fn apply(op: Op, a: &Lanes, b: &Lanes, c: &Lanes) -> Lanes {
-    by_op!(op, a, b, c,
+pub fn apply(op: Op, a: &Lanes, b: &Lanes, c: &Lanes, out: &mut Lanes) {
+    by_op!(op, a, b, c, out,
         Add Sub Mul Div Neg Sqrt Abs Floor Sin Cos Exp Pow Atan2
-        Min Max Clamp ToLinear ToSrgb Hash IsNan AtMost Select)
+        Min Max Clamp ToLinear ToSrgb Hash IsNan AtMost Select Hint)
 }
 
 #[inline(always)]
-fn each(a: &Lanes, b: &Lanes, c: &Lanes, f: impl Fn(f32, f32, f32) -> f32) -> Lanes {
-    let mut out = [0.0; LANES];
+fn each(a: &Lanes, b: &Lanes, c: &Lanes, out: &mut Lanes, f: impl Fn(f32, f32, f32) -> f32) {
     for i in 0..LANES {
         out[i] = f(a[i], b[i], c[i]);
     }
-    out
 }

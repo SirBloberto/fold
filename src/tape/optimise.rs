@@ -1,4 +1,9 @@
-use super::Step;
+use super::{Op, Step};
+
+pub fn without_hints(mut steps: Vec<Step>) -> Vec<Step> {
+    steps.retain(|step| step.op != Op::Hint);
+    steps
+}
 
 pub fn keep_needed(steps: Vec<Step>, outputs: [u32; 4], slots: u32) -> Vec<Step> {
     let mut needed = vec![false; slots as usize];

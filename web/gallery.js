@@ -1,25 +1,26 @@
 import { Fold } from "./fold.js";
+import { Player, Team } from "./team.js";
 
 const WASM = "../target/wasm32-unknown-unknown/web/fold_web.wasm";
 const EXAMPLES = "../examples/";
-const FEATURE = "blackhole";
 const PIECES = [
-    ["blackhole", "Black hole", "Flat shapes, a lensed disk and drifting planets, sharp at any size."],
-    ["neon", "Neon", "Every tube glows onto the wall. In SVG, each glow is a slow blur filter."],
-    ["contours", "Contours", "A living landscape from noise. As video, this would be megabytes."],
-    ["gears", "Gears", "Five meshing gears. Each is one tooth, folded around its centre."],
-    ["opart", "Op art", "Under a kilobyte. Almost all of its work runs once per row and column."],
-    ["ripples", "Ripples", "Fourteen thousand dots, for the cost of one."],
-    ["forest", "Forest", "Four rows of repeated pines, swaying in drifting fog."],
-    ["lighthouse", "Lighthouse", "A sweeping beam over folded waves."],
-    ["mandala", "Mandala", "Seventeen layers, each one shape folded around the centre."],
-    ["aurora", "Aurora", "Six inputs shape the storm. Open it and drag the sliders."],
+    ["blackhole", "Black hole", "A black hole with a tilted disk, orbiting dust and two drifting planets."],
+    ["neon", "Neon", "Neon signs on a brick wall. The OPEN sign flickers."],
+    ["contours", "Contours", "A topographic map of slowly changing terrain, with a tide."],
+    ["gears", "Gears", "Five meshing gears, drawn as a blueprint."],
+    ["opart", "Op art", "A black and white checkerboard, warped by moving waves."],
+    ["ripples", "Ripples", "A grid of dots, sized by two overlapping ripples."],
+    ["forest", "Forest", "Rows of pine trees in drifting fog, under a full moon."],
+    ["lighthouse", "Lighthouse", "A lighthouse beam sweeping over the sea at night."],
+    ["mandala", "Mandala", "Rings of shapes turning around a centre."],
+    ["aurora", "Aurora", "Northern lights over a lake. Its six inputs have sliders."],
 ];
 const STILL = 6;
-const LONGEST = 960;
-const SLOW = 40;
+const LARGEST = 4096;
 
-const fold = await Fold.start(WASM);
+const module = await WebAssembly.compileStreaming(fetch(WASM));
+const fold = await Fold.start(module);
+const player = new Player(new Team(module, Math.min(navigator.hardwareConcurrency || 4, 8)));
 const sources = new Map(await Promise.all(PIECES.map(async ([name]) => {
     const response = await fetch(`${EXAMPLES}${name}.fld`);
     return [name, await response.text()];
@@ -34,6 +35,7 @@ const stats = $("#stats");
 const problem = $("#problem");
 const controls = $("#inputs");
 const nav = $("#nav");
+const editing = () => document.body.classList.contains("editing");
 
 function bytes(text) {
     return new TextEncoder().encode(text).length;
@@ -44,30 +46,39 @@ function kilobytes(text) {
     return size < 1000 ? `${size} bytes` : `${(size / 1024).toFixed(1)} KB`;
 }
 
+function shape(source) {
+    const picture = fold.load(source);
+    const aspect = picture.width / picture.height;
+    picture.unload();
+    return aspect;
+}
+
+function sized(job, width) {
+    const picture = fold.load(job.source);
+    picture.resize(Math.min(Math.max(1, Math.round(width)), LARGEST));
+    const changed = picture.width !== job.width || picture.height !== job.height;
+    job.width = picture.width;
+    job.height = picture.height;
+    picture.unload();
+    if (changed) player.refresh(job);
+    return changed;
+}
+
 function cover(element, aspect) {
     const { width, height } = element.getBoundingClientRect();
-    return Math.min(Math.max(width, height * aspect) * devicePixelRatio, LONGEST);
+    return Math.max(width, height * aspect) * devicePixelRatio;
 }
 
 function contain(element, aspect) {
     const { width, height } = element.getBoundingClientRect();
-    return Math.min(Math.min(width, height * aspect) * devicePixelRatio, LONGEST);
+    return Math.min(width, height * aspect) * devicePixelRatio;
 }
 
-function timed(draw) {
-    const start = performance.now();
-    draw();
-    return performance.now() - start;
+function job(source, canvas, extra) {
+    return { source, canvas, values: new Map(), width: 0, height: 0, ...extra };
 }
 
-function load(name) {
-    const picture = fold.load(sources.get(name));
-    return { picture, aspect: picture.width / picture.height };
-}
-
-let playing = null;
-
-function card([name, title, note]) {
+const cards = PIECES.map(([name, title, note]) => {
     const link = document.createElement("a");
     link.className = "card";
     link.href = `#${name}`;
@@ -81,75 +92,43 @@ function card([name, title, note]) {
     const frame = link.querySelector(".frame");
     const canvas = link.querySelector("canvas");
     const badge = link.querySelector(".play");
-    const { picture, aspect } = load(name);
-    let painted = 0;
-    let started = 0;
+    const source = sources.get(name);
+    const aspect = shape(source);
+    const still = job(source, canvas, { still: STILL });
+    const moving = job(source, canvas, { start: STILL });
     let average = 0;
-
-    const still = () => {
-        const width = Math.round(cover(frame, aspect));
-        if (width === 0 || width === painted) return;
-        painted = width;
-        picture.resize(width);
-        picture.draw(canvas, STILL);
-    };
-    const play = (now) => {
-        if (playing !== link) return;
-        const spent = timed(() => picture.draw(canvas, STILL + (now - started) / 1000));
+    moving.drawn = (spent) => {
         average = average ? average * 0.9 + spent * 0.1 : spent;
         badge.textContent = `${average.toFixed(1)} ms a frame`;
-        requestAnimationFrame(play);
     };
     link.addEventListener("pointerenter", () => {
-        playing = link;
-        started = performance.now();
         average = 0;
-        requestAnimationFrame(play);
+        player.play(moving);
     });
     link.addEventListener("pointerleave", () => {
-        if (playing === link) playing = null;
-        picture.draw(canvas, STILL);
+        player.stop(moving);
+        player.stills.push(still);
     });
-    return still;
+    return () => {
+        const width = cover(frame, aspect);
+        const changed = sized(still, width);
+        sized(moving, width);
+        if (changed) player.stills.push(still);
+    };
+});
+
+function layout() {
+    if (editing()) return;
+    for (const card of cards) card();
 }
-
-const hero = $("#hero");
-const feature = load(FEATURE);
-$("#hero-bytes").textContent = kilobytes(sources.get(FEATURE));
-let heroWidth = 0;
-
-function heroTick(now) {
-    if (!document.body.classList.contains("editing") && playing === null) {
-        const width = Math.round(cover(hero.parentElement, feature.aspect) * 0.9);
-        if (width !== heroWidth) {
-            heroWidth = width;
-            feature.picture.resize(width);
-        }
-        feature.picture.draw(hero, now / 1000);
-    }
-    requestAnimationFrame(heroTick);
-}
-requestAnimationFrame(heroTick);
-
-const stills = PIECES.filter(([name]) => name !== FEATURE).map(card);
-
-async function paint() {
-    for (const still of stills) {
-        if (document.body.classList.contains("editing")) return;
-        still();
-        await new Promise((done) => setTimeout(done));
-    }
-}
-new ResizeObserver(() => paint()).observe(grid);
+new ResizeObserver(layout).observe(grid);
 
 let current = null;
 let aspect = 16 / 9;
-let origin = 0;
 let average = 0;
-let frames = 0;
-let scale = 1;
+let sent = null;
 let chosen = new Map();
-let layout = "";
+let known = "";
 
 function hex(channels) {
     return "#" + channels.slice(0, 3).map((c) => Math.round(c * 255).toString(16).padStart(2, "0")).join("");
@@ -183,9 +162,9 @@ function control(input) {
     }
     field.addEventListener("input", () => {
         const next = input.kind === "num" ? Number(field.value) : channels(field.value, input.value[3]);
-        chosen.set(input.name, next);
         if (input.kind === "num") output.textContent = show(next);
-        current?.set(input.name, next);
+        chosen.set(input.name, next);
+        if (current) player.set(current, input.name, next);
     });
     label.append(name, field, output);
     return label;
@@ -193,59 +172,53 @@ function control(input) {
 
 function offer(picture) {
     const inputs = picture.inputs();
-    for (const input of inputs) {
-        const value = chosen.get(input.name);
-        if (value === undefined) continue;
+    for (const [name, value] of chosen) {
         try {
-            picture.set(input.name, value);
+            picture.set(name, value);
         } catch {
-            chosen.delete(input.name);
+            chosen.delete(name);
         }
     }
-    const shape = JSON.stringify(inputs.map(({ name, kind, lo, hi }) => [name, kind, lo, hi]));
-    if (shape === layout) return;
-    layout = shape;
+    const signature = JSON.stringify(inputs.map(({ name, kind, lo, hi }) => [name, kind, lo, hi]));
+    if (signature === known) return;
+    known = signature;
     controls.replaceChildren(...inputs.map(control));
 }
 
 function fit() {
-    if (!current) return;
-    current.resize(Math.max(64, contain(box, aspect) * scale));
-    frames = 0;
-    average = 0;
+    if (current) sized(current, contain(box, aspect));
 }
 
 function compile() {
+    let picture;
     try {
-        const picture = fold.load(code.value);
-        aspect = picture.width / picture.height;
-        box.style.aspectRatio = `${picture.width} / ${picture.height}`;
-        box.style.maxWidth = `calc((100vh - 240px) * ${aspect})`;
-        picture.resize(Math.max(64, contain(box, aspect) * scale));
-        offer(picture);
-        current?.unload();
-        current = picture;
-        problem.textContent = "";
+        picture = fold.load(code.value);
     } catch (error) {
         problem.textContent = error.message;
+        return;
     }
-}
-
-function tick(now) {
-    if (current && document.body.classList.contains("editing")) {
-        const spent = timed(() => current.draw(view, (now - origin) / 1000));
+    problem.textContent = "";
+    aspect = picture.width / picture.height;
+    box.style.aspectRatio = `${picture.width} / ${picture.height}`;
+    box.style.maxWidth = `calc((100vh - 240px) * ${aspect})`;
+    offer(picture);
+    picture.unload();
+    const start = current ? current.start + (performance.now() - current.origin) / 1000 : 0;
+    current = job(code.value, view, { start, values: new Map(chosen) });
+    current.drawn = (spent, share) => {
         average = average ? average * 0.9 + spent * 0.1 : spent;
-        frames += 1;
-        if (frames > 20 && average > SLOW && scale > 0.35) {
-            scale *= 0.8;
-            fit();
-        }
-        const size = `${current.width} × ${current.height}`;
-        stats.textContent = `${size} · ${bytes(code.value).toLocaleString()} bytes · ${average.toFixed(1)} ms a frame`;
-    }
-    requestAnimationFrame(tick);
+        sent = sent === null ? share : sent * 0.9 + share * 0.1;
+        const parts = [
+            `${current.width} × ${current.height}`,
+            `${bytes(code.value).toLocaleString()} bytes`,
+            `${average.toFixed(1)} ms a frame`,
+            `${(sent * 100).toFixed(1)}% of pixels sent`,
+        ];
+        stats.textContent = parts.join(" · ");
+    };
+    fit();
+    player.play(current);
 }
-requestAnimationFrame(tick);
 
 let pending = 0;
 code.addEventListener("input", () => {
@@ -265,22 +238,24 @@ function open(name) {
     nav.innerHTML = `<a href="#">← Gallery</a>`;
     code.value = sources.get(name);
     code.scrollTop = 0;
-    origin = performance.now();
     chosen = new Map();
-    layout = "";
-    scale = 1;
+    known = "";
+    average = 0;
+    sent = null;
+    current = null;
+    player.stills.length = 0;
     compile();
     scrollTo(0, 0);
 }
 
 function close() {
     document.body.classList.remove("editing");
-    nav.innerHTML = `<a href="#">Gallery</a>`;
-    current?.unload();
+    nav.textContent = "Hover to animate · click to edit";
+    if (current) player.stop(current);
     current = null;
     controls.replaceChildren();
-    layout = "";
-    paint();
+    known = "";
+    layout();
 }
 
 function route() {

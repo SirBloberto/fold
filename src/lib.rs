@@ -7,8 +7,10 @@ mod tape;
 
 use eval::Declared;
 use maths::Rgba;
+pub use render::Area;
 use render::{Canvas, Renderer};
 use syntax::ast::Program;
+use std::ops::Range;
 use std::sync::Arc;
 use tape::{Scalar, Tape};
 
@@ -32,6 +34,7 @@ pub struct Picture {
     values: Vec<f32>,
     tape: Arc<Tape>,
     live: bool,
+    rows: Option<Range<usize>>,
     renderer: Option<Renderer>,
 }
 
@@ -52,6 +55,7 @@ pub fn load(source: &str) -> Result<Picture, String> {
         inputs: compiled.inputs,
         tape: Arc::new(compiled.tape),
         live: false,
+        rows: None,
         renderer: None,
     })
 }
@@ -127,8 +131,23 @@ impl Picture {
         self.renderer = None;
     }
 
+    pub fn band(&mut self, rows: Range<usize>) {
+        if self.rows.as_ref() != Some(&rows) {
+            self.rows = Some(rows);
+            self.renderer = None;
+        }
+    }
+
     pub fn frame(&mut self, time: f32) -> &[u32] {
         self.renderer().frame(time)
+    }
+
+    pub fn changed(&self) -> &[Area] {
+        self.renderer.as_ref().map_or(&[], Renderer::changed)
+    }
+
+    pub fn pixels(&self) -> &[u32] {
+        self.renderer.as_ref().map_or(&[], Renderer::pixels)
     }
 
     pub fn png(&mut self, time: f32) -> Vec<u8> {
@@ -138,8 +157,10 @@ impl Picture {
 
     fn renderer(&mut self) -> &mut Renderer {
         let (tape, canvas) = (&self.tape, self.canvas);
-        self.renderer
-            .get_or_insert_with(|| Renderer::new(tape.clone(), canvas, &self.values, self.live))
+        let rows = self.rows.clone().unwrap_or(0..canvas.height);
+        self.renderer.get_or_insert_with(|| {
+            Renderer::new(tape.clone(), canvas, &self.values, self.live, rows)
+        })
     }
 }
 
@@ -204,6 +225,16 @@ draw tint");
         assert!(picture.live);
         let mut literal = self::picture("draw #ffffff * 0.25");
         assert_eq!(picture.frame(0.0), literal.frame(0.0));
+    }
+
+    #[test]
+    fn a_band_draws_the_same_rows() {
+        let body = "draw circle(20) |> fill(#ffaa00 * (0.5 + 0.5 * sin(TIME)))";
+        let mut whole = picture(body);
+        let mut band = picture(body);
+        band.band(16..40);
+        let (whole, band) = (whole.frame(1.0).to_vec(), band.frame(1.0).to_vec());
+        assert_eq!(whole[16 * 64..40 * 64], band[16 * 64..40 * 64]);
     }
 
     #[test]

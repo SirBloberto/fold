@@ -1,10 +1,45 @@
 use std::cell::RefCell;
+use std::ops::Range;
 
 use fold::{Picture, Value};
 
 struct Slot {
     picture: Picture,
     rgba: Vec<u8>,
+    packed: Vec<u8>,
+    rows: Range<usize>,
+}
+
+impl Slot {
+    fn update(&mut self, time: f32) {
+        self.picture.frame(time);
+        let width = self.picture.width();
+        let rgba = self.rgba.as_chunks_mut::<4>().0;
+        let pixels = self.picture.pixels();
+        for area in self.picture.changed() {
+            for row in area.top..area.top + area.height {
+                let span = row * width + area.left..row * width + area.left + area.width;
+                for (rgba, pixel) in rgba[span.clone()].iter_mut().zip(&pixels[span]) {
+                    let [_, r, g, b] = pixel.to_be_bytes();
+                    *rgba = [r, g, b, 255];
+                }
+            }
+        }
+    }
+
+    fn pack(&mut self) {
+        let width = self.picture.width();
+        self.packed.clear();
+        for area in self.picture.changed() {
+            for number in [area.left, area.top, area.width, area.height] {
+                self.packed.extend((number as u32).to_le_bytes());
+            }
+            for row in area.top..area.top + area.height {
+                let start = (row * width + area.left) * 4;
+                self.packed.extend(&self.rgba[start..start + area.width * 4]);
+            }
+        }
+    }
 }
 
 thread_local! {
@@ -35,8 +70,14 @@ pub extern "C" fn load() -> i32 {
     match loaded {
         Ok(picture) => {
             let rgba = vec![0; picture.width() * picture.height() * 4];
+            let rows = 0..picture.height();
             SLOTS.with_borrow_mut(|slots| {
-                slots.push(Some(Slot { picture, rgba }));
+                slots.push(Some(Slot {
+                    picture,
+                    rgba,
+                    packed: Vec::new(),
+                    rows,
+                }));
                 slots.len() as i32 - 1
             })
         }
@@ -110,20 +151,42 @@ pub extern "C" fn resize(id: usize, width: usize) {
         slot.picture.resize(width);
         let (width, height) = (slot.picture.width(), slot.picture.height());
         slot.rgba.resize(width * height * 4, 0);
+        slot.rows = 0..height;
+    });
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn band(id: usize, top: usize, rows: usize) {
+    with_slot(id, |slot| {
+        let height = slot.picture.height();
+        let top = top.min(height);
+        slot.rows = top..(top + rows).min(height);
+        slot.picture.band(slot.rows.clone());
     });
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn frame(id: usize, time: f32) -> *const u8 {
     with_slot(id, |slot| {
-        let pixels = slot.picture.frame(time);
-        for (rgba, pixel) in slot.rgba.as_chunks_mut::<4>().0.iter_mut().zip(pixels) {
-            let [_, r, g, b] = pixel.to_be_bytes();
-            *rgba = [r, g, b, 255];
-        }
-        slot.rgba.as_ptr()
+        slot.update(time);
+        slot.rgba[slot.rows.start * slot.picture.width() * 4..].as_ptr()
     })
     .unwrap_or(std::ptr::null())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn changes(id: usize, time: f32) -> usize {
+    with_slot(id, |slot| {
+        slot.update(time);
+        slot.pack();
+        slot.packed.len()
+    })
+    .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn packed(id: usize) -> *const u8 {
+    with_slot(id, |slot| slot.packed.as_ptr()).unwrap_or(std::ptr::null())
 }
 
 #[unsafe(no_mangle)]

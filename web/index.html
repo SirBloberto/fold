@@ -54,36 +54,17 @@
     .top nav a { text-decoration: none; }
     .top nav a:hover { color: var(--text); }
 
-    .hero {
-        display: grid;
-        grid-template-columns: minmax(0, 5fr) minmax(0, 4fr);
-        gap: 40px;
-        align-items: center;
-        padding: 24px 0 48px;
-    }
-    .hero h1 { font-size: clamp(32px, 4.4vw, 52px); line-height: 1.08; margin: 0 0 16px; letter-spacing: -0.01em; }
-    .hero h1 em { font-style: normal; color: var(--accent); }
-    .hero p { color: var(--dim); font-size: 17px; margin: 0 0 24px; max-width: 34em; }
-    .claims { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0; padding: 0; list-style: none; }
-    .claims li { background: var(--panel); border: 1px solid var(--edge); border-radius: 10px; padding: 10px 14px; }
-    .claims b { display: block; font-size: 15px; }
-    .claims span { color: var(--dim); font-size: 13px; }
-    .feature { position: relative; border-radius: 14px; overflow: hidden; border: 1px solid var(--edge); background: #000; aspect-ratio: 16 / 9; }
-    .feature canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
-    .feature .tag {
-        position: absolute; left: 12px; bottom: 12px;
-        background: rgb(0 0 0 / 0.55); color: #fff; backdrop-filter: blur(6px);
-        border-radius: 999px; padding: 4px 12px; font-size: 13px; text-decoration: none;
-    }
-
-    .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 8px 0 16px; }
-    .section-head h2 { margin: 0; font-size: 22px; }
-    .section-head p { margin: 0; color: var(--dim); font-size: 14px; }
     #grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-        gap: 20px;
-        padding-bottom: 64px;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 16px;
+        padding: 8px 0 48px;
+    }
+    @media (min-width: 560px) {
+        #grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (min-width: 1100px) {
+        #grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
     }
     .card {
         display: flex; flex-direction: column;
@@ -104,12 +85,10 @@
         font-variant-numeric: tabular-nums;
     }
     .card:hover .play { opacity: 1; }
-    .words { padding: 12px 14px 14px; display: grid; gap: 4px; }
+    .words { padding: 10px 12px 12px; display: grid; gap: 2px; }
     .words .name { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; }
     .words .name span { color: var(--dim); font-weight: 400; font-size: 13px; font-variant-numeric: tabular-nums; }
-    .words p { margin: 0; color: var(--dim); font-size: 14px; }
-
-    footer { color: var(--dim); font-size: 13px; padding: 0 0 40px; }
+    .words p { margin: 0; color: var(--dim); font-size: 13px; }
 
     body.editing { height: 100vh; overflow: hidden; }
     body.editing #home { display: none; }
@@ -154,8 +133,6 @@
     #inputs output { color: var(--dim); text-align: right; font-variant-numeric: tabular-nums; }
 
     @media (max-width: 860px) {
-        .hero { grid-template-columns: minmax(0, 1fr); gap: 24px; }
-        .hero .feature { order: -1; }
         body.editing { height: auto; overflow: auto; }
         body.editing #editor { grid-template-columns: minmax(0, 1fr); height: auto; }
         #stage { order: -1; }
@@ -163,44 +140,17 @@
         #code { height: 60vh; }
         #inputs { max-height: none; }
     }
-    @media (max-width: 480px) {
-        .claims { grid-template-columns: 1fr; }
-        #grid { grid-template-columns: minmax(0, 1fr); }
-    }
 </style>
 </head>
 <body>
 <div class="wrap">
     <header class="top">
         <a class="brand" href="#">fold<span>.</span></a>
-        <nav id="nav"><a href="#">Gallery</a></nav>
+        <nav id="nav"></nav>
     </header>
 
     <div id="home">
-        <section class="hero">
-            <div>
-                <h1>Pictures that are <em>tiny programs</em>.</h1>
-                <p>Fold is a vector image format that computes itself: layered like SVG, run like a shader. Every file here is a few kilobytes of readable code, rendered live on your CPU.</p>
-                <ul class="claims">
-                    <li><b>A few kilobytes</b><span>Every picture here is under 5.3 KB</span></li>
-                    <li><b>Any size</b><span>The same file, sharp from icon to 4K</span></li>
-                    <li><b>Safe to load</b><span>No scripts, no network, no files</span></li>
-                    <li><b>Driven by data</b><span>Inputs a host can change live</span></li>
-                </ul>
-            </div>
-            <div class="feature">
-                <canvas id="hero"></canvas>
-                <a class="tag" href="#blackhole">blackhole.fld · <span id="hero-bytes"></span> · edit →</a>
-            </div>
-        </section>
-
-        <div class="section-head">
-            <h2>Gallery</h2>
-            <p>Hover to play. Click to open the code and change it.</p>
-        </div>
         <div id="grid"></div>
-
-        <footer>Rendered in your browser by the Fold engine, compiled to WebAssembly and running on one CPU thread.</footer>
     </div>
 
     <main id="editor">

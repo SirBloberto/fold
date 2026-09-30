@@ -4,6 +4,7 @@ mod value;
 use std::rc::Rc;
 use std::sync::LazyLock;
 
+use crate::maths::shape::Reach;
 use crate::maths::{self, Rgba, Vec2, shape};
 use crate::syntax::ast::{Expr, ExprKind, Program, Stmt, StmtKind};
 use crate::syntax::lexer::lex;
@@ -352,6 +353,8 @@ impl<'a> Env<'a> {
             return Err(at(&message, pos));
         }
 
+        let transform = self.transform(closure);
+        let given = transform.map(|_| args.clone());
         let mut env = Env {
             pixel: self.pixel,
             globals: self.globals,
@@ -362,10 +365,23 @@ impl<'a> Env<'a> {
         };
         env.vars.extend(closure.params.iter().copied().zip(args));
 
-        match closure.body {
+        let result = match closure.body {
             Body::Block(body) => env.block(body, pos),
             Body::Expr(body) => env.expr(body),
-        }
+        }?;
+        Ok(match (transform, given) {
+            (Some(name), Some(args)) => reached(name, &args, result),
+            _ => result,
+        })
+    }
+
+    fn transform(&self, closure: &Closure<'a>) -> Option<&'a str> {
+        self.globals.iter().find_map(|(name, value)| match value {
+            Value::Func(known) if std::ptr::eq(&**known, closure) && TRANSFORMS.contains(name) => {
+                Some(*name)
+            }
+            _ => None,
+        })
     }
 
     fn block(&mut self, body: &'a [Stmt], pos: Pos) -> Result<Value<'a>, String> {
@@ -409,8 +425,80 @@ impl<'a> Env<'a> {
                 }
             },
         };
-        Ok(d)
+        Ok(match sh.reach.distance(pt) {
+            Some(away) => {
+                let floor = away - (away.abs() * REACH_SLACK + 0.001);
+                d.hint(away.at_most(0.0).select(f32::NEG_INFINITY, floor))
+            }
+            None => d,
+        })
     }
+}
+
+const REACH_SLACK: f32 = 1.0 / 1024.0;
+
+const TRANSFORMS: [&str; 12] = [
+    "at",
+    "pin",
+    "spin",
+    "around",
+    "mirror",
+    "scale",
+    "union",
+    "intersect",
+    "subtract",
+    "smooth_union",
+    "grow",
+    "outline",
+];
+
+fn reached<'a>(name: &str, args: &[Value<'a>], result: Value<'a>) -> Value<'a> {
+    let Value::Shape(made) = &result else {
+        return result;
+    };
+    let shape = |i: usize| match args.get(i) {
+        Some(Value::Shape(sh)) => Some(sh.clone()),
+        _ => None,
+    };
+    let num = |i: usize| match args.get(i) {
+        Some(Value::Num(n)) => Some(*n),
+        _ => None,
+    };
+    let Some(first) = shape(0) else {
+        return result;
+    };
+    let inner = first.reach;
+    let reach = match name {
+        "at" => match (num(1), num(2)) {
+            (Some(x), Some(y)) => inner.moved(maths::vec2(x, y)),
+            _ => Reach::Everywhere,
+        },
+        "pin" => match (args.get(1), args.get(2)) {
+            (Some(Value::Vec2(anc)), Some(Value::Vec2(to))) => {
+                inner.moved(*to - first.bounds.anchor(*anc))
+            }
+            _ => Reach::Everywhere,
+        },
+        "spin" | "around" => inner.spun(),
+        "mirror" => inner.mirrored(),
+        "scale" => num(1).map_or(Reach::Everywhere, |k| inner.scaled(k)),
+        "union" => shape(1).map_or(Reach::Everywhere, |other| inner.joined(other.reach)),
+        "intersect" | "subtract" => inner,
+        "smooth_union" => match (shape(1), num(2).and_then(Scalar::known)) {
+            (Some(other), Some(k)) if k > 0.0 => {
+                inner.joined(other.reach).widened(Scalar::from(k / 4.0))
+            }
+            _ => Reach::Everywhere,
+        },
+        "grow" => num(1).map_or(Reach::Everywhere, |r| inner.widened(r)),
+        "outline" => num(1).map_or(Reach::Everywhere, |w| inner.widened(w * 0.5)),
+        _ => return result,
+    };
+    Value::Shape(Rc::new(Shape {
+        kind: made.kind.clone(),
+        bounds: made.bounds,
+        reach,
+    }))
 }
 
 fn at(message: &str, pos: Pos) -> String {
@@ -789,7 +877,8 @@ mod tests {
     }
 
     fn tape_of(src: &str) -> Result<Tape, String> {
-        Ok(compile(&load(src)?, 1.0)?.tape)
+        let tape = compile(&load(src)?, 1.0)?.tape;
+        Ok(tape.specialise(&tape.inputs))
     }
 
     fn same_on_tape(src: &str) {
@@ -826,8 +915,8 @@ mod tests {
             run(program, &prelude, pixel).expect(src).channels()
         };
         let shared = Arc::new(compile(program, px).unwrap().tape);
-        let mut folded = Renderer::new(shared.clone(), canvas, &values, false);
-        let mut live = Renderer::new(shared, canvas, &values, true);
+        let mut folded = Renderer::new(shared.clone(), canvas, &values, false, 0..height);
+        let mut live = Renderer::new(shared, canvas, &values, true, 0..height);
         for time in [0.0, 1.3] {
             values[TIME] = time;
             let wanted = |row: usize| row.is_multiple_of(spacing);
