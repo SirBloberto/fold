@@ -1,0 +1,42 @@
+~fold v1 960x540
+
+input bands: 4..40 = 14
+
+let inner = 135
+let half = inner * sqrt(3)
+let bend = vec2(-sqrt(3) / 2, 0.5)
+
+func kink(p) {
+    let side = vec2(abs(p.x), p.y) - vec2(1 / 3, 0)
+    let past = max(side.x * bend.x + side.y * bend.y, 0)
+    return (side - bend * (2 * past) - vec2(1 / 3, 0)) * 3
+}
+
+func curve(p) {
+    let a = kink(kink(kink(kink(kink(p)))))
+    let b = kink(kink(kink(kink(kink(a)))))
+    let along = clamp(b.x, -1, 1)
+    let gap = length(b - vec2(along, 0))
+    let sign = clamp(b.y * 1000000, -1, 1)
+    return gap * sign / 59049
+}
+
+func flake(pt) {
+    let sector = TAU / 3
+    let a = mod(angle(pt) + sector / 2, sector) - sector / 2
+    let q = vec2(cos(a), sin(a)) * length(pt)
+    return curve(vec2(q.y, q.x - inner) / half) * half
+}
+
+let d = flake(POS)
+let depth = max(-d, 0)
+let ring = abs(fract(depth / bands - TIME * 0.15) - 0.5) * bands
+let line = clamp(1.6 - ring / PX, 0, 1) * smoothstep(0, 6, depth)
+let body = mix(#dff4ff, #5aa6e6, smoothstep(0, 140, depth))
+let sky = mix(#0e2a4a, #061325, smoothstep(0, 520, length(POS)))
+
+draw FRAME |> fill(sky)
+draw #6fbcff * (0.3 * exp(-max(length(POS) - 200, 0) / 110))
+draw shape(pt => flake(pt)) |> fill(body)
+draw #ffffff * (0.55 * line)
+draw shape(pt => flake(pt)) |> outline(PX * 1.5) |> fill(#ffffff)

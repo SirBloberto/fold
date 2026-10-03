@@ -1,0 +1,86 @@
+~fold v1 960x540
+
+input speed: 0..100 = 64
+input heat: 0..100 = 45
+input warn: 50..100 = 80
+
+let start = 135 * DEG
+let sweep = 270 * DEG
+
+func cover_of(d) {
+    return clamp(0.5 - d / PX, 0, 1)
+}
+
+func turn_of(value) {
+    return start + sweep * value / 100
+}
+
+func ticks(centre, r, count, inner, width) {
+    let q = POS - centre
+    let along = mod(angle(q) - start, TAU)
+    let step = sweep / count
+    let nearest = clamp(floor(along / step + 0.5), 0, count) * step
+    let apart = abs(along - nearest) * length(q)
+    let radial = abs(length(q) - (r - inner / 2)) - inner / 2
+    return cover_of(max(apart - width / 2, radial))
+}
+
+func band(centre, r, from, to, width) {
+    let q = POS - centre
+    let along = mod(angle(q) - start, TAU)
+    let inside = min(along - sweep * from / 100, sweep * to / 100 - along) * length(q)
+    return cover_of(max(abs(length(q) - r) - width / 2, -inside))
+}
+
+func needle(centre, r, value) {
+    let wobble = 0.006 * sin(TIME * 23) + 0.004 * sin(TIME * 37 + 1)
+    let a = turn_of(value) + wobble
+    let dir = vec2(cos(a), sin(a))
+    return union(segment(centre - dir * r * 0.18, centre + dir * r * 0.82) |> grow(r * 0.022),
+        circle(r * 0.08) |> at(centre.x, centre.y))
+}
+
+func face(centre, r) {
+    return circle(r) |> at(centre.x, centre.y)
+}
+
+func light_on(q, r) {
+    return 0.5 + 0.5 * clamp(-(q.x + q.y) / (r * 1.4), -1, 1)
+}
+
+let big = vec2(-190, 10)
+let small = vec2(240, 40)
+let lamp = vec2(240, -170)
+let hot = smoothstep(warn - 2, warn + 2, heat)
+let blink = hot * (0.6 + 0.4 * sin(TIME * 8))
+
+let panel = mix(#2c3e43, #1d2a2e, smoothstep(0, 600, length(POS))) * (0.92 + 0.08 * noise(POS / 3))
+let brass_big = mix(#7d5f2c, #f0d08a, light_on(POS - big, 230))
+let brass_small = mix(#7d5f2c, #f0d08a, light_on(POS - small, 165))
+
+draw FRAME |> fill(panel)
+draw face(big + vec2(10, 16), 236) |> fill(#000000 * 0.35)
+draw face(small + vec2(8, 12), 168) |> fill(#000000 * 0.35)
+draw face(big, 236) |> fill(brass_big)
+draw face(small, 168) |> fill(brass_small)
+draw face(big, 216) |> fill(#f6f0e1)
+draw face(small, 152) |> fill(#f6f0e1)
+draw #3fa36b * band(big, 196, 0, 60, 7)
+draw #e8b23a * band(big, 196, 60, 85, 7)
+draw #d63c2f * band(big, 196, 85, 100, 7)
+draw #d63c2f * band(small, 136, warn, 100, 6)
+draw #1d2328 * ticks(big, 206, 50, 12, 1.4)
+draw #1d2328 * ticks(big, 206, 10, 26, 3.2)
+draw #1d2328 * ticks(small, 144, 20, 9, 1.2)
+draw #1d2328 * ticks(small, 144, 4, 20, 2.8)
+draw needle(big + vec2(4, 6), 216, speed) |> fill(#000000 * 0.2)
+draw needle(small + vec2(3, 5), 152, heat) |> fill(#000000 * 0.2)
+draw needle(big, 216, speed) |> fill(#d63c2f)
+draw needle(small, 152, heat) |> fill(#d63c2f)
+draw face(big, 9) |> fill(#2a2a2a)
+draw face(small, 7) |> fill(#2a2a2a)
+draw face(lamp, 26) |> fill(#7d5f2c)
+draw face(lamp, 20) |> fill(mix(#4a1712, #ff4a33, blink))
+draw #ff5a3c * (0.6 * blink * exp(-max(length(POS - lamp) - 20, 0) / 30))
+draw #ffffff * (0.14 * (1 - smoothstep(0.6, 1, length((POS - big - vec2(-70, -90)) / vec2(150, 90)))))
+draw #ffffff * (0.14 * (1 - smoothstep(0.6, 1, length((POS - small - vec2(-50, -64)) / vec2(105, 64)))))

@@ -8,6 +8,7 @@ For people implementing Fold. The language itself is defined in [SPEC.md](SPEC.m
 3. Lex, parse and check. **Every error is reported at load time**, with a line and column: syntax, unknown names, wrong arguments, types, redefinition, recursion and limits. A file that loads successfully must render without errors. Error messages name types as `num`, `vec2`, `rgba`, `shape` and `func`.
 ## 2. Rendering
 - The host chooses the output width. The height follows from the header's aspect ratio, rounded to whole pixels. `PX` is the size of one output pixel in canvas units: the header's width divided by the output width.
+- The host may zoom in by a factor from 1 to 1000 around a centre point. The output then shows that part of the canvas at the same output size, `PX` shrinks by the zoom factor, and the centre is moved so the view stays inside the canvas.
 - Each pixel is sampled at its centre.
 - Colour literals are converted from sRGB to linear light when evaluated. All colour maths and compositing happen in premultiplied linear light, and the final canvas is converted back to sRGB.
 - Each channel of the final canvas becomes an 8-bit sRGB value by counting how many of 255 thresholds it reaches. Threshold *k* is the linear-light value of sRGB (*k* − ½) / 255, rounded to the nearest 32-bit float. NaN and negative values give 0; values of 1 or more give 255.

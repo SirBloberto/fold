@@ -13,9 +13,9 @@ let t = TIME * flow * (1 + storm * 1.6)
 let sway = pan + sin(t * 0.09) * 26
 let red = max(energy - 0.45, 0) * 1.8
 let corona = clamp((energy - 0.45) * 1.9, 0, 1)
-let vy = tilt - 170
+let vy = tilt - 30
 let zenith = vec2(-sway * 0.08, tilt * 2.6 - 483)
-let reach = 267 * (0.72 + energy * 0.55) * (1 + storm * 0.35)
+let reach = 370 * (0.72 + energy * 0.55) * (1 + storm * 0.35)
 
 func band(from, to, x) { return clamp((x - from) / (to - from), 0, 1) }
 
@@ -101,10 +101,10 @@ func scene(p) {
         curtain(p, 0.632, 11, 0, 1, 1, 0, #8dffd0, 0.28)
     let light = sky_at(p) + arc_light(p) + aurora
     let hazy = mix(light, #1e3456, 0.32 * band(horizon - 90, horizon, p.y))
-    let far = land(p, hazy, 0.006, 31, 56, 60, 0.08, #20304c)
-    let middle = land(p, far, 0.009, 67, 64, 40, 0.18, #121d34)
-    let near = land(p, middle, 0.013, 93, 72, 17, 0.32, #080e1c)
-    let crest = 1 - smoothstep(0, 1.5, abs(p.y - ridge(p.x, 0.013, 93, 72, 17, 0.32) + 1))
+    let far = land(p, hazy, 0.006, 31, 36, 34, 0.08, #20304c)
+    let middle = land(p, far, 0.009, 67, 40, 22, 0.18, #121d34)
+    let near = land(p, middle, 0.013, 93, 44, 8, 0.32, #080e1c)
+    let crest = 1 - smoothstep(0, 1.5, abs(p.y - ridge(p.x, 0.013, 93, 44, 8, 0.32) + 1))
     return near + #5affbe * ((0.05 + energy * 0.08) * crest)
 }
 
@@ -113,4 +113,4 @@ let ripple = sin(t * 2.1 + floor((POS.y - horizon) / 6) * 0.85) * 2.2
 let seen = scene(mix(POS, vec2(POS.x + ripple, 2 * horizon - POS.y), below))
 let sheen = 1 - smoothstep(0, 1.5, abs(POS.y - horizon - 0.75))
 
-draw mix(seen, mix(#040a1a, seen, 0.24), below) + #8cdcff * (0.07 * sheen)
+draw mix(seen, mix(#040a1a, seen, 0.42), below) + #8cdcff * (0.07 * sheen)

@@ -14,7 +14,9 @@ func height(pt) {
 }
 
 let here = height(POS)
-let slope = max(length(vec2(height(POS + vec2(1, 0)) - here, height(POS + vec2(0, 1)) - here)), 0.0001)
+let grade = vec2(height(POS + vec2(1, 0)) - here, height(POS + vec2(0, 1)) - here)
+let slope = max(length(grade), 0.0001)
+let relief = clamp(0.92 - (grade.x + grade.y) * 6.5, 0.4, 1.5)
 let step = floor(here + 0.5)
 let apart = abs(here - step) / slope / PX
 let major = 1 - min(mod(step, 4), 1)
@@ -30,6 +32,6 @@ let land = mix(mix(mix(#8fb07a, #c8c283, smoothstep(0, 0.35, rise)), #b98a5e, sm
 let water = mix(#4d9db3, #1d4a6b, deep)
 let shore = clamp(1.8 + 0.5 - abs(here - tide) / slope / PX, 0, 1)
 
-draw FRAME |> fill(mix(land, water, wet))
+draw FRAME |> fill(mix(lit(land, #ffffff * relief), water, wet))
 draw mix(#5b4633, #a9d6df, wet) * (line * (0.55 + 0.35 * major))
 draw #2c3b47 * shore

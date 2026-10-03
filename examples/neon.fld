@@ -1,6 +1,9 @@
 ~fold v1 960x540
 
 input buzz: 0..1 = 0.5
+input sound_level: 0..1 = 0
+input sound_bass: 0..1 = 0
+input sound_treble: 0..1 = 0
 
 func step_down(x, edge) {
     return 1 - clamp((x - edge) * 1000, 0, 1)
@@ -47,22 +50,25 @@ func heart_dist(q) {
     return min(lobes, dist(rect(34, 34) |> spin(45 * DEG), q - vec2(0, 5)))
 }
 
-let heart = shape(pt => heart_dist(pt - vec2(-150, 120)))
+let beat = 1 + 0.22 * sound_bass
+let heart = shape(pt => heart_dist((pt - vec2(-150, 120)) / beat) * beat)
 
 let chase = floor(mod(TIME * 4, 6))
 func chevron(i) {
     let x = 40 + i * 34
     let sh = union(segment(vec2(x, 100), vec2(x + 18, 120)), segment(vec2(x + 18, 120), vec2(x, 140))) |> bounded(x + 9, 120, 24)
-    let on = 1 - min(abs(i - chase), 1)
+    let running = 1 - min(abs(i - chase), 1)
+    let meter = clamp(sound_level * 6.5 - i, 0, 1)
+    let on = mix(running, meter, clamp(sound_level * 30, 0, 1))
     return tube(sh, #ffd23f, 1) * (0.2 + 0.8 * on)
 }
 
 draw wall
 draw FRAME |> fill(#000000 * (0.5 * smoothstep(250, 520, length(POS * vec2(0.8, 1.3)))))
 draw tube(word, #ff3d7f, flicker(1))
-draw tube(glass, #3de0ff, 1)
-draw tube(olive, #7dff6a, 1)
-draw tube(heart, #ff4fd8, 1)
+draw tube(glass, #3de0ff, 1 + 1.2 * sound_treble)
+draw tube(olive, #7dff6a, 1 + 1.2 * sound_treble)
+draw tube(heart, #ff4fd8, 1 + 1.6 * sound_bass)
 draw chevron(0)
 draw chevron(1)
 draw chevron(2)

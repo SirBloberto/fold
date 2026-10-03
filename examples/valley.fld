@@ -1,0 +1,96 @@
+~fold v1 960x540
+
+input haze: 0..1 = 0.5
+
+let sway = sin(TIME * 0.15)
+
+func height(x, scale, seed) {
+    let broad = noise(vec2(x / scale, seed))
+    let fine = noise(vec2(x / (scale * 0.35), seed + 3))
+    return 1 - abs(broad * 1.4 - 0.7) - 0.3 * fine
+}
+
+func top(x, base, rise, scale, seed, drift) {
+    return base - rise * height(x + drift * sway, scale, seed)
+}
+
+func ridge(base, rise, scale, seed, drift) {
+    return shape(pt => top(pt.x, base, rise, scale, seed, drift) - pt.y)
+}
+
+func step_up(edge, x) {
+    return clamp((x - edge) * 100000, 0, 1)
+}
+
+func tier(q, w, h) {
+    let side = (abs(q.x) * h - w / 2 * (q.y + h)) / sqrt(h * h + w * w / 4)
+    return max(side, q.y)
+}
+
+func pine(q, size) {
+    let low = tier(q, size * 0.9, size * 0.6)
+    let middle = tier(q + vec2(0, size * 0.32), size * 0.68, size * 0.5)
+    let high = tier(q + vec2(0, size * 0.6), size * 0.44, size * 0.45)
+    return min(min(low, middle), high)
+}
+
+func tree(pt, cell, base, rise, scale, seed, drift) {
+    let x = (cell + 0.5 + (hash(vec2(cell, 4)) - 0.5) * 0.5) * 34 - drift * sway
+    let size = 46 + 50 * hash(vec2(cell, 9))
+    let ground = top(x, base, rise, scale, seed, drift)
+    return pine(pt - vec2(x, ground + 8), size) + 1000 * step_up(0.55, hash(vec2(cell, 2)))
+}
+
+func woods(pt, base, rise, scale, seed, drift) {
+    let cell = floor((pt.x + drift * sway) / 34)
+    let here = tree(pt, cell, base, rise, scale, seed, drift)
+    let left = tree(pt, cell - 1, base, rise, scale, seed, drift)
+    let right = tree(pt, cell + 1, base, rise, scale, seed, drift)
+    return min(min(min(here, left), right), top(pt.x, base, rise, scale, seed, drift) - pt.y)
+}
+
+func cloud(x, y, w, speed) {
+    let along = mod(x + TIME * speed + 700, 1400) - 700
+    return union(rounded_rect(w, 22, 11), rounded_rect(w * 0.55, 34, 17) |> at(w * 0.08, -10)) |> at(along, y)
+}
+
+func bird(x, y, beat) {
+    let flap = 10 * sin(TIME * 6 + beat)
+    let body = vec2(x + 18 * sin(TIME * 0.3 + beat), y + 6 * sin(TIME * 0.7 + beat))
+    let wings = union(segment(body + vec2(-16, -flap), body), segment(body, body + vec2(16, -flap)))
+    return wings |> grow(1.8)
+}
+
+let tower_x = 250 - 26 * sway
+let tower_ground = top(tower_x, 168, 150, 190, 3, 26)
+let legs = union(segment(vec2(tower_x - 13, tower_ground + 6), vec2(tower_x - 7, tower_ground - 58)),
+    segment(vec2(tower_x + 13, tower_ground + 6), vec2(tower_x + 7, tower_ground - 58)))
+let brace = union(segment(vec2(tower_x - 11, tower_ground - 10), vec2(tower_x + 8, tower_ground - 50)),
+    segment(vec2(tower_x + 11, tower_ground - 10), vec2(tower_x - 8, tower_ground - 50)))
+let cabin = rect(28, 16) |> at(tower_x, tower_ground - 66)
+let roof = shape(pt => tier(pt - vec2(tower_x, tower_ground - 73), 40, 12))
+let tower = union(union(legs |> grow(1.6), brace |> grow(0.8)), union(cabin, roof))
+
+let sky = mix(#ffe2b0, #f59e72, smoothstep(40, -270, POS.y))
+let sun_at = vec2(-210, -40)
+let mist = #ffe9c7 * (haze * 0.5)
+
+draw FRAME |> fill(sky)
+draw #fff1cf * (0.45 * exp(-max(length(POS - sun_at) - 50, 0) / 90))
+draw circle(50) |> at(sun_at.x, sun_at.y) |> fill(#fff6dd)
+draw cloud(-260, -180, 190, 9) |> fill(#ffd2a8 * 0.9)
+draw cloud(180, -205, 150, 6) |> fill(#ffd9b3 * 0.85)
+draw cloud(520, -130, 230, 12) |> fill(#ffc89e * 0.9)
+draw ridge(70, 150, 260, 1, 6) |> fill(#f0a283)
+draw mist * smoothstep(-40, 90, POS.y)
+draw ridge(120, 150, 210, 2, 14) |> fill(#d97a62)
+draw mist * smoothstep(20, 140, POS.y)
+draw ridge(168, 150, 190, 3, 26) |> fill(#b3564f)
+draw tower |> fill(#b3564f)
+draw mist * (0.6 * smoothstep(80, 200, POS.y))
+draw shape(pt => woods(pt, 225, 120, 160, 4, 40)) |> fill(#7a3747)
+draw shape(pt => woods(pt, 290, 110, 130, 5, 60)) |> fill(#3b1f2f)
+draw bird(-40, -150, 0) |> fill(#5a2a3a)
+draw bird(-12, -138, 1.3) |> fill(#5a2a3a)
+draw bird(-68, -134, 2.1) |> fill(#5a2a3a)
+draw bird(18, -160, 0.7) |> fill(#5a2a3a)

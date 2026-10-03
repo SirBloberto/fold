@@ -1,4 +1,5 @@
 const TILE_ROWS = 16;
+const FRESH = Date.now();
 
 export class Team {
     constructor(module, count) {
@@ -6,14 +7,14 @@ export class Team {
         this.bands = [];
         this.waiting = null;
         this.workers = Array.from({ length: count }, () => {
-            const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+            const worker = new Worker(new URL(`./worker.js?${FRESH}`, import.meta.url), { type: "module" });
             worker.onmessage = ({ data }) => this.arrive(data);
             worker.postMessage({ kind: "start", module });
             return worker;
         });
     }
 
-    show(source, width, height, values) {
+    show(source, width, height, values, view) {
         this.version += 1;
         this.waiting?.done(null);
         this.waiting = null;
@@ -24,12 +25,16 @@ export class Team {
             const rows = Math.min(share, height - top);
             if (rows <= 0) return;
             this.bands.push({ worker });
-            worker.postMessage({ kind: "load", source, width, top, rows, values: [...values] });
+            worker.postMessage({ kind: "load", source, width, top, rows, values: [...values], view });
         });
     }
 
     set(name, value) {
         for (const { worker } of this.bands) worker.postMessage({ kind: "set", name, value });
+    }
+
+    zoom(view) {
+        for (const { worker } of this.bands) worker.postMessage({ kind: "zoom", view });
     }
 
     frame(time) {
@@ -94,11 +99,20 @@ export class Player {
         if (this.shown === job) this.team.set(name, value);
     }
 
+    zoom(job, view) {
+        job.view = view;
+        job.moved = true;
+    }
+
     async render(job, time) {
         if (this.shown !== job) {
-            this.team.show(job.source, job.width, job.height, job.values);
+            this.team.show(job.source, job.width, job.height, job.values, job.view);
             this.shown = job;
+            job.moved = false;
             job.image = new ImageData(job.width, job.height);
+        } else if (job.moved) {
+            this.team.zoom(job.view);
+            job.moved = false;
         }
         const start = performance.now();
         const parts = await this.team.frame(time);

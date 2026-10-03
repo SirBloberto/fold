@@ -1,0 +1,42 @@
+~fold v1 960x540
+
+input blend: 10..100 = 50
+input pointer_x: -2000..2000 = 2000
+input pointer_y: -2000..2000 = 0
+
+let t = TIME * 0.5
+
+func blob(pt, x, y, r) {
+    return length(pt - vec2(x, y)) - r
+}
+
+func pool(pt) {
+    let a = blob(pt, 230 * sin(t * 0.7), 130 * cos(t * 0.9), 112)
+    let b = blob(pt, 290 * cos(t * 0.5 + 1), 150 * sin(t * 0.8 + 2), 92)
+    let c = blob(pt, 330 * sin(t * 0.4 + 3), 120 * sin(t * 1.1), 78)
+    let d = blob(pt, 170 * cos(t * 0.9 + 2), 160 * cos(t * 0.6 + 1), 72)
+    let e = blob(pt, 360 * cos(t * 0.3 + 4), 160 * sin(t * 0.5 + 5), 62)
+    let f = blob(pt, 100 * sin(t * 1.2 + 1), 100 * cos(t * 1.4), 52)
+    let held = blob(pt, pointer_x, pointer_y, 58)
+    return smooth_min(smooth_min(smooth_min(a, b, blend), smooth_min(c, d, blend), blend), smooth_min(smooth_min(e, f, blend), held, blend), blend)
+}
+
+let here = pool(POS)
+let slope = vec2(pool(POS + vec2(1, 0)) - here, pool(POS + vec2(0, 1)) - here)
+let depth = clamp(-here / 150, 0, 1)
+let dome = sqrt(1 - (1 - depth) * (1 - depth))
+let lean = slope * (1 - dome)
+
+let above = mix(#f6fbff, #5f8fbd, smoothstep(0.08, -0.85, lean.y))
+let below = mix(#33261d, #dcb98e, smoothstep(0.18, 0.95, lean.y))
+let horizon = smoothstep(0.08, 0.12, lean.y)
+let metal = mix(above, below, horizon)
+let glint = smoothstep(0.17, 0.05, length(lean - vec2(-0.32, -0.45)))
+let lit = mix(metal, #ffffff, glint)
+
+let shadow = 1 - smoothstep(0, 50, pool(POS - vec2(0, 24)))
+let ground = mix(#e9e2d6, #cfc5b4, smoothstep(0, 560, length(POS)))
+
+draw FRAME |> fill(ground)
+draw #3a2f25 * (0.32 * shadow)
+draw lit * clamp(0.5 - here / PX, 0, 1)

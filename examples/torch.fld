@@ -1,0 +1,69 @@
+~fold v1 960x540
+
+input pointer_x: -480..480 = -40
+input pointer_y: -270..270 = 10
+input moon: 0..2 = 1
+
+let torch = vec2(pointer_x, pointer_y)
+let flicker = 0.88 + 0.07 * sin(TIME * 13) + 0.05 * sin(TIME * 31 + 1.3)
+let beam = vec2(0.8, 0.6)
+let across = vec2(-0.6, 0.8)
+let pane = vec2(-200, 30)
+
+func dot(a, b) {
+    return a.x * b.x + a.y * b.y
+}
+
+func shade(from, cx, cy, r) {
+    let to = POS - from
+    let centre = vec2(cx, cy) - from
+    let along = clamp(dot(centre, to) / max(dot(to, to), 0.0001), 0, 1)
+    let miss = length(centre - to * along) - r
+    let soft = 1 + length(to) * (1 - along) * 0.03
+    return smoothstep(-soft, soft, miss)
+}
+
+func shadows(from) {
+    return shade(from, -300, -120, 34) * shade(from, -120, 110, 30) * shade(from, 60, -140, 38) *
+        shade(from, 230, 90, 32) * shade(from, 360, -70, 28) * shade(from, -380, 170, 26)
+}
+
+func pillar(cx, cy, r) {
+    return circle(r) |> at(cx, cy)
+}
+
+let row = floor(POS.y / 45)
+let offset = mod(row, 2) * 35
+let col = floor((POS.x + offset) / 70)
+let local = vec2(mod(POS.x + offset, 70) - 35, mod(POS.y, 45) - 22.5)
+let gap = min(35 - abs(local.x), 22.5 - abs(local.y))
+let stone = mix(#5e5850, #8a8277, hash(vec2(col, row))) * (0.8 + 0.4 * noise(POS / 13))
+let floor_colour = mix(#2a2622, stone, smoothstep(1.5, 3.5, gap))
+
+let coin_cell = vec2(floor(POS.x / 90), floor(POS.y / 90))
+let coin_at = (coin_cell + vec2(0.3, 0.3) + vec2(hash(coin_cell + vec2(3, 1)), hash(coin_cell + vec2(1, 3))) * 0.4) * 90
+let coin = smoothstep(0.8, 0.81, hash(coin_cell + vec2(8, 8))) * clamp((5 - length(POS - coin_at)) / PX + 0.5, 0, 1)
+
+let away = length(POS - torch)
+let warmth = flicker * 2.6 / (1 + (away / 105) * (away / 105))
+let torchlight = warmth * shadows(torch)
+let warm = #ffa860 * torchlight
+
+let w = dot(POS - pane, across)
+let d = dot(POS - pane, beam)
+let window = (1 - smoothstep(95, 115, abs(w))) * (1 - smoothstep(150, 185, abs(d)))
+let bars = smoothstep(2, 6, abs(w)) * smoothstep(2, 6, abs(d)) * smoothstep(2, 6, abs(abs(w) - 52))
+let cold = #6f9cff * (moon * 0.9 * window * bars * shadows(POS - beam * 900))
+
+let light = warm + cold + #0d1220 * 0.6
+let pillars = union(union(union(pillar(-300, -120, 34), pillar(-120, 110, 30)), union(pillar(60, -140, 38), pillar(230, 90, 32))),
+    union(pillar(360, -70, 28), pillar(-380, 170, 26)))
+let top = mix(#8a847b, #b3ada2, noise(POS / 9))
+
+draw FRAME |> fill(#000000)
+draw FRAME |> fill(lit(floor_colour, light))
+draw #ffd36b * (coin * clamp(0.1 + torchlight * 1.5, 0, 1))
+draw pillars |> grow(4) |> fill(#000000 * 0.5)
+draw pillars |> fill(lit(top, #ffa860 * warmth + #6f9cff * (moon * 0.25) + #0d1220 * 0.6))
+draw #ffb347 * (0.5 * flicker * exp(-away / 18))
+draw circle(5) |> at(torch.x, torch.y) |> fill(#fff2c4)

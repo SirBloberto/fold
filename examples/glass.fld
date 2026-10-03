@@ -1,0 +1,60 @@
+~fold v1 960x540
+
+input lead: 1..8 = 3.5
+input pointer_x: -2000..2000 = 2000
+input pointer_y: -2000..2000 = 0
+
+let size = 78
+let home = vec2(floor(POS.x / size), floor(POS.y / size))
+
+func seed(cell) {
+    return hash(cell) * 6.2 + hash(cell + vec2(3, 9))
+}
+
+func site(dx, dy) {
+    let cell = home + vec2(dx, dy)
+    let wobble = vec2(sin(TIME * 0.3 + seed(cell)), cos(TIME * 0.25 + seed(cell) * 1.7)) * 0.12
+    let jitter = vec2(hash(cell + vec2(1, 0)), hash(cell + vec2(0, 1))) * 0.7 + vec2(0.15, 0.15)
+    return (cell + jitter + wobble) * size
+}
+
+func away(dx, dy) {
+    return length(POS - site(dx, dy))
+}
+
+func nearer(best, dx, dy) {
+    let d = away(dx, dy)
+    let wins = clamp((best.x - d) * 100000, 0, 1)
+    return vec2(min(best.x, d), mix(best.y, hash(home + vec2(dx, dy) + vec2(5, 5)), wins))
+}
+
+func second(pair, dx, dy) {
+    let d = away(dx, dy)
+    return vec2(min(pair.x, d), min(pair.y, max(pair.x, d)))
+}
+
+let far = vec2(100000, 0)
+let a = nearer(nearer(nearer(far, -1, -1), 0, -1), 1, -1)
+let b = nearer(nearer(nearer(a, -1, 0), 0, 0), 1, 0)
+let pick = nearer(nearer(nearer(b, -1, 1), 0, 1), 1, 1)
+
+let wide = vec2(100000, 100000)
+let c = second(second(second(wide, -1, -1), 0, -1), 1, -1)
+let d = second(second(second(c, -1, 0), 0, 0), 1, 0)
+let two = second(second(second(d, -1, 1), 0, 1), 1, 1)
+
+let edge = (two.y - two.x) / 2
+let tone = pick.y
+let warm = mix(#e63946, #f4a261, smoothstep(0, 0.25, tone))
+let gold = mix(warm, #f2cc5b, smoothstep(0.25, 0.45, tone))
+let cool = mix(gold, #2a9d8f, smoothstep(0.45, 0.65, tone))
+let pane = mix(mix(cool, #457b9d, smoothstep(0.65, 0.82, tone)), #6d4c9f, smoothstep(0.82, 1, tone))
+
+let drift = vec2(260 * sin(TIME * 0.2), -60 + 120 * cos(TIME * 0.17))
+let sun = mix(drift, vec2(pointer_x, pointer_y), clamp(1500 - abs(pointer_x), 0, 1))
+let light = 0.35 + 0.9 * exp(-length(POS - sun) / 330)
+let grain = 0.88 + 0.24 * noise(POS / 9)
+let bevel = smoothstep(0, 9, edge - lead / 2)
+
+draw FRAME |> fill(#0b0a0c)
+draw pane * (light * grain * (0.72 + 0.28 * bevel) * clamp((edge - lead / 2) / PX + 0.5, 0, 1))

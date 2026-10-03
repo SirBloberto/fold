@@ -1,14 +1,18 @@
 ~fold v1 960x540
 
-input gap: 4..16 = 6
+input gap: 10..40 = 18
+input sound_level: 0..1 = 0
+input sound_bass: 0..1 = 0
+input sound_treble: 0..1 = 0
 
 let one = vec2(cos(TIME * 0.31), sin(TIME * 0.43)) * vec2(300, 150)
 let two = vec2(cos(TIME * 0.27 + 2), sin(TIME * 0.37 + 4)) * vec2(280, 160)
+let swell = 1 + 0.6 * sound_level
 
 func wave(pt) {
     let a = sin(length(pt - one) * 0.032 - TIME * 1.6)
     let b = sin(length(pt - two) * 0.032 - TIME * 1.9)
-    return 0.5 + 0.25 * (a + b)
+    return clamp(0.5 + 0.25 * (a + b) * swell, 0, 1)
 }
 
 func centre_of(pt) {
@@ -17,11 +21,16 @@ func centre_of(pt) {
 
 func dot_dist(pt) {
     let centre = centre_of(pt)
-    return length(pt - centre) - gap * (0.1 + 0.36 * wave(centre))
+    let size = (0.1 + 0.36 * wave(centre)) * (1 + 0.9 * sound_bass)
+    return length(pt - centre) - gap * min(size, 0.48)
 }
 
-let level = wave(centre_of(POS))
+let cell = centre_of(POS)
+let level = wave(cell)
+let spark = clamp((hash(cell / gap + vec2(floor(TIME * 12), 3)) - 1 + 0.25 * sound_treble) * 40, 0, 1)
 let dots = shape(pt => dot_dist(pt))
+let calm = mix(mix(#27407a, #3fb8b0, smoothstep(0.15, 0.6, level)), #fff0c8, smoothstep(0.7, 1, level))
+let loud = mix(calm, #ff5fa2, 0.6 * sound_bass * smoothstep(0.3, 0.9, level))
 
 draw FRAME |> fill(#0e1226)
-draw dots |> fill(mix(mix(#27407a, #3fb8b0, smoothstep(0.15, 0.6, level)), #fff0c8, smoothstep(0.7, 1, level)))
+draw dots |> fill(mix(loud, #ffffff, spark))

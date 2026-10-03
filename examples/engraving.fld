@@ -1,0 +1,72 @@
+~fold v1 960x540
+
+input spacing: 6..20 = 10
+input pointer_x: -2000..2000 = 2000
+input pointer_y: -2000..2000 = 0
+
+let big = vec2(-150, -10)
+let small = vec2(210, 75)
+let swing = TIME * 0.4
+let wander = vec2(0.75 * sin(swing), -0.55 + 0.25 * sin(swing * 0.7))
+let pointer = vec2(pointer_x, pointer_y)
+let toward = (pointer - big) / max(length(pointer - big), 1) * 0.85
+let sun = mix(wander, toward, clamp(1500 - abs(pointer_x), 0, 1))
+let up = sqrt(max(1 - sun.x * sun.x - sun.y * sun.y, 0.05))
+let horizon = 40
+
+func dot(a, b) {
+    return a.x * b.x + a.y * b.y
+}
+
+func step_up(edge, x) {
+    return clamp((x - edge) / PX + 0.5, 0, 1)
+}
+
+func ink(coord, dark) {
+    let away = abs(fract(coord / spacing) - 0.5) * spacing
+    let width = dark * spacing
+    let wide = max(width, PX * 1.2)
+    return clamp((wide * 0.5 - away) / PX + 0.5, 0, 1) * min(width / wide, 1)
+}
+
+func asin(y) {
+    return atan2(y, sqrt(max(1 - y * y, 0)))
+}
+
+func sphere_ink(centre, r) {
+    let q = (POS - centre) / r
+    let flat = min(dot(q, q), 1)
+    let n = vec2(q.x, q.y)
+    let depth = sqrt(1 - flat)
+    let light = max(n.x * sun.x + n.y * sun.y + depth * up, 0)
+    let dark = clamp(1 - light * 1.1, 0.04, 0.8)
+    let tilted = rotate(n, 0.5)
+    let along = asin(clamp(tilted.y, -1, 1)) * r
+    let across = atan2(tilted.x, depth) * r
+    let lines = max(ink(along, dark), ink(across, clamp(dark * 2 - 1, 0, 1)))
+    return lines * clamp((1 - length(q)) * r / PX + 0.5, 0, 1)
+}
+
+func shadow(centre, r) {
+    let foot = vec2(centre.x - sun.x * r * 1.6, centre.y + r * 0.92)
+    let q = (POS - foot) / vec2(r * (1.1 + abs(sun.x) * 0.9), r * 0.28)
+    return 1 - smoothstep(0.7, 1.05, length(q))
+}
+
+let below = max(POS.y - horizon, 0)
+let ground_line = 14000 / (below + 90)
+let shade = 0.08 + 0.22 * smoothstep(0, 230, below) + 0.75 * max(shadow(big, 150), shadow(small, 70))
+let ground = ink(ground_line, clamp(shade, 0, 0.75)) * step_up(horizon, POS.y)
+let sky = ink(POS.x * 0.7 + POS.y * 0.7, 0.18 * smoothstep(horizon - 40, -270, POS.y))
+
+let rim_big = circle(150) |> at(big.x, big.y) |> outline(1.6)
+let rim_small = circle(70) |> at(small.x, small.y) |> outline(1.4)
+
+draw FRAME |> fill(#f3ead6)
+draw #22303f * max(ground, sky)
+draw circle(150) |> at(big.x, big.y) |> fill(#f3ead6)
+draw #22303f * sphere_ink(big, 150)
+draw circle(70) |> at(small.x, small.y) |> fill(#f3ead6)
+draw #22303f * sphere_ink(small, 70)
+draw rim_big |> fill(#22303f)
+draw rim_small |> fill(#22303f)

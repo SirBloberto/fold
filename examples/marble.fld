@@ -1,0 +1,23 @@
+~fold v1 960x540
+
+input swirl: 0..3 = 2
+
+func field(pt) {
+    return noise(pt) * 0.65 + noise(pt * 2.03 + vec2(11, 7)) * 0.35
+}
+
+let p = POS / 210
+let t = TIME * 0.05
+
+let push = vec2(field(p + vec2(0, t)), field(p + vec2(5.2, 1.3 - t)))
+let pull = vec2(field(p + push * swirl + vec2(1.7 + t, 9.2)), field(p + push * swirl + vec2(8.3, 2.8 - t)))
+let ink = field(p + pull * swirl * 1.2)
+
+let fine = sin(ink * 95 + pull.x * 9)
+let broad = sin(ink * 21 + pull.y * 5 + 1)
+
+let paper = mix(#141a4f, #f3efe6, smoothstep(-0.35, 0.35, fine))
+let gold = mix(paper, #d9a441, smoothstep(0.45, 0.7, broad) * smoothstep(-0.2, 0.5, fine))
+let blue = mix(gold, #5b8bd9, smoothstep(-0.45, -0.7, broad) * smoothstep(0.2, -0.5, fine))
+
+draw FRAME |> fill(blue)

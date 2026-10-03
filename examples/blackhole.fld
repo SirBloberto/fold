@@ -18,6 +18,16 @@ func ring(centre, lo, hi, squash) {
     return shape(pt => ring_dist(pt, centre, lo, hi, squash))
 }
 
+func lens(pt) {
+    let q = pt - hub
+    let bend = 1 - 150 * 150 / max(q.x * q.x + q.y * q.y, 100)
+    return hub + q * bend
+}
+
+func bent(sh) {
+    return shape(pt => dist(sh, lens(pt)))
+}
+
 func orbit_dist(pt, radius, count, pace, size) {
     let q = pt - hub
     let plane = vec2(q.x, q.y / tilt)
@@ -38,10 +48,11 @@ func pulse(radius, lag) {
 
 let rho = length(POS - hub)
 let sky = mix(#0a1430, #03050d, smoothstep(0, 560, rho))
-let cell = vec2(floor(POS.x / 3), floor(POS.y / 3))
+let seen = lens(POS)
+let cell = vec2(floor(seen.x / 3), floor(seen.y / 3))
 let rate = 0.4 + 2.6 * hash(cell + vec2(17, 3))
 let blink = smoothstep(-0.4, 0.9, sin(TIME * rate + hash(cell) * 50))
-let stars = smoothstep(0.994, 1, hash(cell)) * (0.15 + 0.85 * blink) * smoothstep(250, 330, rho)
+let stars = smoothstep(0.994, 1, hash(cell)) * (0.15 + 0.85 * blink) * smoothstep(hole * 1.05, hole * 1.4, rho)
 
 let above = shape(pt => pt.y - hub.y)
 let under = shape(pt => hub.y - pt.y)
@@ -71,23 +82,55 @@ let disk = ring(hub, 80, 228, tilt) |> fill(gas(spread, atan2(-offset.x, offset.
 let lensed = 80 + (rho - hole * 1.1) / (hole * 0.34) * 148
 let arch = intersect(circle(hole * 1.44) |> at(hub.x, hub.y) |> subtract(halo(hole * 1.1)), above)
 
-let drift = vec2(-340 + 45 * sin(TIME * 0.07), -160 + 14 * sin(TIME * 0.05 + 1))
-let planet = circle(20) |> at(drift.x, drift.y)
-let moon = circle(9) |> at(330 + 20 * sin(TIME * 0.09), 150)
+func place(radius, lean, pace, phase) {
+    let a = t * pace + phase
+    return vec2(cos(a) * radius, sin(a) * radius * lean)
+}
+
+func nearness(pace, phase) {
+    return sin(t * pace + phase)
+}
+
+func world(radius, lean, pace, phase, size) {
+    let centre = place(radius, lean, pace, phase)
+    let r = size * (1 + 0.22 * nearness(pace, phase))
+    return circle(r) |> at(centre.x, centre.y)
+}
+
+func lit_side(radius, lean, pace, phase, size) {
+    let centre = place(radius, lean, pace, phase)
+    let r = size * (1 + 0.22 * nearness(pace, phase))
+    let toward = (hub - centre) / max(length(hub - centre), 1) * (r * 0.45)
+    return intersect(world(radius, lean, pace, phase, size), circle(r) |> at(centre.x + toward.x, centre.y + toward.y))
+}
+
+func front(pace, phase) {
+    return clamp(nearness(pace, phase) * 60, 0, 1)
+}
+
+func planet(radius, lean, pace, phase, size, dark, side) {
+    let shown = mix(1 - front(pace, phase), front(pace, phase), side)
+    return world(radius, lean, pace, phase, size) |> fill(dark * shown)
+}
+
+func shine(radius, lean, pace, phase, size, light, side) {
+    let shown = mix(1 - front(pace, phase), front(pace, phase), side)
+    return lit_side(radius, lean, pace, phase, size) |> fill(light * shown)
+}
 
 draw FRAME |> fill(sky)
 draw #ffffff * stars
 draw waves |> fill(#9fd0ff * (0.1 * smoothstep(640, 200, rho)))
-draw planet |> fill(#2b4f86)
-draw intersect(planet, planet |> at(7, 6)) |> fill(#6f9fd8)
-draw moon |> fill(#1c355e)
-draw intersect(moon, moon |> at(-4, -3)) |> fill(#8fb8e8)
-draw pulse(280, 2.4) |> fill(#0e1c40)
-draw pulse(205, 1.6) |> fill(#152c58)
-draw pulse(150, 0.8) |> fill(#1e4279)
-draw pulse(112, 0) |> fill(#2b5e9e)
+draw pulse(280, 2.4) |> fill(#0e1c40 * 0.5)
+draw pulse(205, 1.6) |> fill(#152c58 * 0.5)
+draw pulse(150, 0.8) |> fill(#1e4279 * 0.55)
+draw pulse(112, 0) |> fill(#2b5e9e * 0.6)
 draw intersect(outer_dust, above) |> fill(#4f7fbf)
 draw intersect(inner_dust, above) |> fill(#7fb0e6)
+draw bent(world(400, 0.34, 0.22, 2.2, 22)) |> fill(#5a2a1c * (1 - front(0.22, 2.2)))
+draw bent(lit_side(400, 0.34, 0.22, 2.2, 22)) |> fill(#f08a4b * (1 - front(0.22, 2.2)))
+draw bent(world(300, 0.2, -0.37, 0.5, 11)) |> fill(#1d3d4a * (1 - front(-0.37, 0.5)))
+draw bent(lit_side(300, 0.2, -0.37, 0.5, 11)) |> fill(#9fe6e0 * (1 - front(-0.37, 0.5)))
 draw arch |> fill(gas(lensed, atan2(offset.x, -offset.y)))
 draw disk * cover(above)
 draw halo(hole) |> fill(#02040a)
@@ -95,3 +138,7 @@ draw halo(hole * 1.03) |> outline(2) |> fill(#ffffff)
 draw disk * cover(under)
 draw intersect(inner_dust, under) |> fill(#cfe8ff)
 draw intersect(outer_dust, under) |> fill(#9fc6f2)
+draw planet(400, 0.34, 0.22, 2.2, 22, #5a2a1c, 1)
+draw shine(400, 0.34, 0.22, 2.2, 22, #f08a4b, 1)
+draw planet(300, 0.2, -0.37, 0.5, 11, #1d3d4a, 1)
+draw shine(300, 0.2, -0.37, 0.5, 11, #9fe6e0, 1)

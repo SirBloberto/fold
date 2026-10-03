@@ -39,7 +39,7 @@
         overflow-x: hidden;
     }
     a { color: inherit; }
-    .wrap { max-width: 1240px; margin: 0 auto; padding: 0 16px; }
+    .wrap { max-width: 1920px; margin: 0 auto; padding: 0 16px; }
 
     .top {
         display: flex;
@@ -57,17 +57,22 @@
     #grid {
         display: grid;
         grid-template-columns: minmax(0, 1fr);
-        gap: 16px;
-        padding: 8px 0 48px;
+        gap: 12px;
+        padding: 4px 0 16px;
+        margin: 0 auto;
     }
-    @media (min-width: 560px) {
-        #grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    @media (min-width: 640px) {
+        #grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     }
     @media (min-width: 1100px) {
-        #grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+        #grid {
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            max-width: calc((100vh - 112px) / 4 * 16 / 9 * 5 + 30px);
+        }
     }
     .card {
-        display: flex; flex-direction: column;
+        position: relative;
+        display: block;
         background: var(--panel);
         border: 1px solid var(--edge);
         border-radius: 12px;
@@ -85,10 +90,20 @@
         font-variant-numeric: tabular-nums;
     }
     .card:hover .play { opacity: 1; }
-    .words { padding: 10px 12px 12px; display: grid; gap: 2px; }
-    .words .name { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; }
-    .words .name span { color: var(--dim); font-weight: 400; font-size: 13px; font-variant-numeric: tabular-nums; }
-    .words p { margin: 0; color: var(--dim); font-size: 13px; }
+    .words {
+        position: absolute; left: 0; right: 0; bottom: 0;
+        padding: 28px 10px 7px;
+        background: linear-gradient(rgb(0 0 0 / 0), rgb(0 0 0 / 0.85));
+        color: #fff; pointer-events: none;
+        text-shadow: 0 1px 3px rgb(0 0 0 / 0.9);
+    }
+    .words .name { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; font-size: 14px; }
+    .words .name span { color: rgb(255 255 255 / 0.7); font-weight: 400; font-size: 12px; font-variant-numeric: tabular-nums; }
+    .words p {
+        margin: 0; color: rgb(255 255 255 / 0.85); font-size: 12px; line-height: 1.4;
+        max-height: 0; opacity: 0; overflow: hidden; transition: max-height 0.2s, opacity 0.2s;
+    }
+    .card:hover .words p, .card:focus-visible .words p { max-height: 5em; opacity: 1; }
 
     body.editing { height: 100vh; overflow: hidden; }
     body.editing #home { display: none; }
@@ -115,7 +130,8 @@
         width: 100%; position: relative;
         border-radius: 12px; border: 1px solid var(--edge); background: #000; overflow: hidden;
     }
-    #view { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
+    #view { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; cursor: grab; touch-action: none; }
+    #view.held { cursor: grabbing; }
     #stats { color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; }
     #problem { color: var(--wrong); font: 13px/1.5 var(--mono); white-space: pre-wrap; }
     #problem:empty, #inputs:empty { display: none; }
@@ -125,11 +141,16 @@
         max-height: 30vh; overflow: auto;
     }
     #inputs label {
-        display: grid; grid-template-columns: 72px minmax(0, 1fr) 48px; align-items: center; gap: 10px;
+        display: grid; grid-template-columns: 96px minmax(0, 1fr) 48px; align-items: center; gap: 10px;
         font: 13px var(--mono);
     }
     #inputs input[type="range"] { width: 100%; accent-color: var(--accent); }
     #inputs input[type="color"] { width: 44px; height: 26px; border: 1px solid var(--edge); border-radius: 6px; background: none; padding: 0; }
+    #inputs button {
+        grid-column: 1 / -1; justify-self: start;
+        font: 13px system-ui, sans-serif; color: var(--page); background: var(--accent);
+        border: 0; border-radius: 999px; padding: 5px 14px; cursor: pointer;
+    }
     #inputs output { color: var(--dim); text-align: right; font-variant-numeric: tabular-nums; }
 
     @media (max-width: 860px) {

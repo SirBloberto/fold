@@ -22,6 +22,7 @@ pub fn call<'a>(name: &str, args: &[Value<'a>], size: maths::Vec2) -> Result<Val
         ("vec2", [Num(x), Num(y)]) => Vec2(maths::vec2(*x, *y)),
 
         ("rgba", [Num(r), Num(g), Num(b), Num(a)]) => Rgba(maths::Rgba::from_srgb(*r, *g, *b, *a)),
+        ("lit", [Rgba(surface), Rgba(light)]) => Rgba(surface.lit(*light)),
 
         ("hash", [Vec2(pt)]) => Num(maths::hash(*pt)),
 

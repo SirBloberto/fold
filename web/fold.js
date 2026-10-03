@@ -68,6 +68,10 @@ export class Picture {
         this.fold.wasm.resize(this.id, Math.max(1, Math.round(width)));
     }
 
+    zoom({ scale, x, y }) {
+        this.fold.wasm.zoom(this.id, scale, x, y);
+    }
+
     band(top, rows) {
         this.fold.wasm.band(this.id, top, rows);
     }

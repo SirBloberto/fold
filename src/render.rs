@@ -37,11 +37,12 @@ struct Tile {
     fresh: bool,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Canvas {
     pub width: usize,
     pub height: usize,
     pub px: f32,
+    pub middle: [f32; 2],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -238,7 +239,7 @@ impl Tile {
             return;
         };
         let x = xs(area.left, canvas);
-        let ys = (0..area.height).map(|row| (row, centre(area.top + row, canvas.height, canvas.px)));
+        let ys = (0..area.height).map(|row| (row, canvas.y(area.top + row)));
         kernel.run(scratch, values, &x, ys, |row, [r, g, b, _]| {
             let line = &mut pixels[row * area.width..][..area.width];
             for (i, pixel) in line.iter_mut().enumerate() {
@@ -266,15 +267,9 @@ fn areas(canvas: Canvas) -> Vec<Area> {
 }
 
 fn specialise(tape: &Tape, inputs: &[Range], area: Area, canvas: Canvas) -> Tape {
-    let span = |first: usize, count: usize, length: usize| {
-        Range::between(
-            centre(first, length, canvas.px),
-            centre(first + count - 1, length, canvas.px),
-        )
-    };
     let mut inputs = inputs.to_vec();
-    inputs[X] = span(area.left, area.width, canvas.width);
-    inputs[Y] = span(area.top, area.height, canvas.height);
+    inputs[X] = Range::between(canvas.x(area.left), canvas.x(area.left + area.width - 1));
+    inputs[Y] = Range::between(canvas.y(area.top), canvas.y(area.top + area.height - 1));
     tape.specialise(&inputs)
 }
 
@@ -283,12 +278,18 @@ fn constant_byte(range: Range) -> Option<u32> {
     (lo == hi && (!range.nan || lo == 0)).then_some(lo)
 }
 
-fn centre(index: usize, length: usize, px: f32) -> f32 {
-    (index as f32 + 0.5 - length as f32 / 2.0) * px
+impl Canvas {
+    pub fn x(&self, col: usize) -> f32 {
+        (col as f32 + 0.5 - self.width as f32 / 2.0) * self.px + self.middle[0]
+    }
+
+    pub fn y(&self, row: usize) -> f32 {
+        (row as f32 + 0.5 - self.height as f32 / 2.0) * self.px + self.middle[1]
+    }
 }
 
 fn xs(left: usize, canvas: Canvas) -> Lanes {
-    std::array::from_fn(|i| centre(left + i, canvas.width, canvas.px))
+    std::array::from_fn(|i| canvas.x(left + i))
 }
 
 #[cfg(test)]
@@ -303,7 +304,7 @@ pub fn trace(
     for area in areas(canvas) {
         let kernel = Kernel::new(&specialise(tape, &tape.inputs, area, canvas));
         let rows = (0..area.height).filter(|&row| wanted(area.top + row));
-        let ys = rows.map(|row| (row, centre(area.top + row, canvas.height, canvas.px)));
+        let ys = rows.map(|row| (row, canvas.y(area.top + row)));
         kernel.run(&mut scratch, values, &xs(area.left, canvas), ys, |row, out| {
             for i in 0..area.width {
                 visit(area.left + i, area.top + row, out.map(|lanes| lanes[i]));
@@ -326,6 +327,7 @@ mod tests {
             width: 256,
             height: 256,
             px: 1.0,
+            middle: [0.0, 0.0],
         };
         let compiled = compile(&program, 1.0).unwrap();
         let values = compiled.defaults();

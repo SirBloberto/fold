@@ -1,0 +1,30 @@
+~fold v1 960x540
+
+input size: 24..96 = 48
+
+let cell = vec2(floor(POS.x / size), floor(POS.y / size))
+let local = (POS - (cell + vec2(0.5, 0.5)) * size) / size
+
+let clock = TIME * 0.35 + hash(cell + vec2(7, 3)) * 8
+let turns = floor(clock) + smoothstep(0.75, 1, fract(clock)) + floor(hash(cell) * 4)
+let q = rotate(local, turns * TAU / 4)
+
+let one = abs(length(q + vec2(0.5, 0.5)) - 0.5)
+let two = abs(length(q - vec2(0.5, 0.5)) - 0.5)
+let apart = min(one, two) * size
+
+func band(width) {
+    return clamp(0.5 - (apart - width / 2) / PX, 0, 1)
+}
+
+let across = clamp(apart / (size * 0.17), 0, 1)
+let round = sqrt(1 - across * across)
+let soft = round * round * round * round
+let gloss = soft * soft * soft
+
+let shade_of = 0.5 + 0.5 * sin((cell.x + cell.y) * 0.9 + TIME * 0.4)
+
+draw FRAME |> fill(#12303a)
+draw #0a1c22 * band(size * 0.46)
+draw lit(mix(#e9c46a, #f4a261, shade_of), #ffffff * (0.3 + 0.85 * round)) * band(size * 0.34)
+draw #fff6e0 * (0.65 * gloss * band(size * 0.34))

@@ -897,6 +897,7 @@ mod tests {
             width: (units_x / px).round() as usize,
             height: (units_y / px).round() as usize,
             px,
+            middle: [0.0, 0.0],
         };
         let (width, height) = (canvas.width, canvas.height);
         let size = maths::vec2(units_x, units_y);

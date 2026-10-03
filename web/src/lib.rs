@@ -156,6 +156,11 @@ pub extern "C" fn resize(id: usize, width: usize) {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn zoom(id: usize, scale: f32, x: f32, y: f32) {
+    with_slot(id, |slot| slot.picture.zoom(scale, x, y));
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn band(id: usize, top: usize, rows: usize) {
     with_slot(id, |slot| {
         let height = slot.picture.height();

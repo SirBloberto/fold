@@ -92,6 +92,8 @@ Arithmetic works on:
 
 Every other combination is an error.
 
+Arithmetic never fails while drawing: dividing by zero gives an infinity, and `0 / 0` gives NaN. A colour containing NaN is drawn as transparent.
+
 ## 7. Evaluation
 The file runs **once per pixel**, top to bottom. The canvas starts transparent. Each `draw` first makes its colour valid (alpha clamped to `0..1`, and no channel brighter than its alpha), then composites it on top: `canvas = col + canvas × (1 − col.a)`. After the last line, the canvas is converted to sRGB. Engines may evaluate the file any way they like, as long as the pixels are identical.
 
@@ -102,6 +104,7 @@ Everything not listed here is defined in the prelude, in Fold.
 |---|---|
 | Maths | `sin cos atan2 sqrt exp pow floor abs min max` |
 | Values | `vec2(x, y)`, `rgba(r, g, b, a)` |
+| Light | `lit(surface, light)`: the surface as the light shows it. Each colour channel is multiplied by the light's, in linear light, and the surface keeps its alpha. A light's alpha scales its strength, so `#ff8040 * 0.5` is half as bright, and lights add with `+`. `lit(stone, #ffffff)` is the stone unchanged. |
 | Random | `hash(pt)`: a repeatable number in `0..1` for a position. Identical on every engine. |
 | Shapes | `circle(r)`, `rect(w, h)`, `segment(from, to)`, all centred on the origin; `shape(fn)`, where `fn(pt)` returns the true distance to the edge, or less; `dist(sh, pt)` |
 | Bounds | `anchor(sh, anc)`: the point at relative position `anc` on the shape's bounding box (`TOP_LEFT` is `(-1, -1)`, `MID` is `(0, 0)`). Exact for built-in shapes; never too small for others. |

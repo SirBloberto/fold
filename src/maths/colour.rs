@@ -62,6 +62,15 @@ impl Rgba {
         }
     }
 
+    pub fn lit(self, light: Rgba) -> Rgba {
+        Rgba {
+            r: self.r * light.r,
+            g: self.g * light.g,
+            b: self.b * light.b,
+            a: self.a,
+        }
+    }
+
     pub fn over(self, below: Rgba) -> Rgba {
         self + below * (1.0 - self.a)
     }
@@ -99,6 +108,16 @@ mod tests {
     fn mid_grey_is_darker_in_linear_light() {
         let grey = Rgba::hex(0x808080ff).r.known().unwrap();
         assert!((grey - 0.2158).abs() < 1e-4, "{grey}");
+    }
+
+    #[test]
+    fn light_multiplies_each_channel_and_keeps_the_surface_alpha() {
+        let surface = Rgba::hex(0x808080cc);
+        let light = Rgba::hex(0xff8000ff) * 0.5;
+        let [r, g, b, a] = surface.lit(light).channels().map(|c| c.known().unwrap());
+        let [sr, sg, _, sa] = surface.channels().map(|c| c.known().unwrap());
+        let [lr, lg, _, _] = light.channels().map(|c| c.known().unwrap());
+        assert_eq!((r, g, b, a), (sr * lr, sg * lg, 0.0, sa));
     }
 
     #[test]
